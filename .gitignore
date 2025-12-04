@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Data files (too large for git - download from Kaggle)
+data/raw/*.csv
+data/processed/*.csv
+
+# Keep the folder structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Model files (can be regenerated)
+models/*.pkl
+
+# Keep the folder structure
+!models/.gitkeep
+
