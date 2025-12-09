@@ -1,2 +1,2 @@
-# Config module
+# CineSwipe Configuration Module
 

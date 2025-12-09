@@ -1,6 +1,7 @@
 """
-Movie Trend Analyzer - Source Package
+CineSwipe - Movie Recommendation System
 CS210 Data Management Final Project
+Authors: Anish Shah & Arnav Venkata
 """
 
 __version__ = "1.0.0"

@@ -30,8 +30,15 @@ data/processed/*.csv
 !data/processed/.gitkeep
 
 # Model files (can be regenerated)
-models/*.pkl
+models/saved/*.pkl
+models/saved/*.joblib
 
-# Keep the folder structure
-!models/.gitkeep
+# Keep the folder structure  
+!models/saved/.gitkeep
 
+# Streamlit
+.streamlit/secrets.toml
+
+# Logs
+*.log
+logs/

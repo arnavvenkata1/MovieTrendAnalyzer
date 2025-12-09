@@ -1,25 +1,31 @@
-# 🎬 Movie Trend Analyzer
+# 🎬 CineSwipe - Movie Recommendation System
 
 **CS210 Data Management Final Project**  
 **Authors:** Anish Shah & Arnav Venkata
 
-A data-driven system that analyzes social media activity to identify and forecast emerging audience interests in movie genres.
+A Tinder-style movie recommendation app that learns your preferences through swipes and provides personalized movie suggestions using hybrid machine learning.
 
 ---
 
-## 📋 Project Overview
+## 🎯 Project Overview
 
-The Movie Trend Prediction System analyzes movie review data from **Letterboxd** and **Metacritic** to:
-- Track engagement trends by genre over time
-- Perform sentiment analysis on reviews
-- Predict future genre popularity using machine learning
+CineSwipe is a full-stack movie recommendation system that:
+1. **Onboards users** with preference questions (genres, mood, era)
+2. **Shows movie cards** to swipe left (👎) or right (👍)
+3. **Learns in real-time** from your swipes
+4. **Recommends movies** using a hybrid ML approach
 
-### Key Features
-- **Hybrid Database Architecture**: PostgreSQL (structured) + MongoDB (unstructured)
-- **ETL Pipeline**: Extract, Transform, Load workflow
-- **Sentiment Analysis**: VADER-based NLP analysis
-- **ML Models**: Regression and Classification for trend prediction
-- **Interactive Dashboard**: Streamlit-based visualization
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| 🎭 **Onboarding** | Quick preference questionnaire |
+| 👆 **Swipe Interface** | Tinder-style movie discovery |
+| 🤖 **Hybrid ML** | Content-based + Collaborative filtering |
+| 📊 **Analytics** | Track your viewing patterns |
+| 🗄️ **Hybrid Database** | PostgreSQL + MongoDB architecture |
 
 ---
 
@@ -27,119 +33,167 @@ The Movie Trend Prediction System analyzes movie review data from **Letterboxd**
 
 | Component | Technology |
 |-----------|------------|
-| Language | Python 3.10+ |
-| SQL Database | PostgreSQL |
-| NoSQL Database | MongoDB |
-| Data Processing | Pandas, NumPy |
-| NLP | NLTK, VADER |
-| Machine Learning | Scikit-learn |
-| Visualization | Streamlit, Plotly |
+| **Language** | Python 3.10+ |
+| **SQL Database** | PostgreSQL |
+| **NoSQL Database** | MongoDB |
+| **ML Framework** | Scikit-learn |
+| **NLP** | TF-IDF Vectorization |
+| **Frontend** | Streamlit |
+| **Visualization** | Plotly |
 
 ---
 
 ## 📁 Project Structure
 
 ```
-MovieTrendAnalyzer/
+CineSwipe/
 ├── README.md
 ├── requirements.txt
+├── .gitignore
+│
 ├── config/
-│   └── settings.py          # Database & app configuration
-├── data/
-│   ├── raw/                  # Original CSV files
-│   │   ├── letterboxd-reviews.csv
-│   │   ├── metacritic-reviews.csv
-│   │   ├── tmdb_5000_movies.csv
-│   │   └── tmdb_5000_credits.csv
-│   └── processed/            # Transformed data
+│   └── settings.py              # Configuration settings
+│
 ├── database/
-│   └── schema.sql            # PostgreSQL schema
+│   ├── postgres_schema.sql      # PostgreSQL tables & views
+│   └── mongo_schema.md          # MongoDB collection docs
+│
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py        # Load CSV → Databases
-│   ├── etl.py                # ETL Pipeline
-│   ├── sentiment.py          # VADER sentiment analysis
-│   └── models.py             # ML training & prediction
+│   ├── data_loader.py           # Load Kaggle CSVs → DBs
+│   │
+│   ├── models/
+│   │   ├── content_based.py     # TF-IDF similarity model
+│   │   ├── collaborative.py     # User-user KNN model
+│   │   └── hybrid.py            # Combined recommendation
+│   │
+│   └── utils/
+│       ├── db_postgres.py       # PostgreSQL operations
+│       └── db_mongo.py          # MongoDB operations
+│
 ├── app/
-│   └── dashboard.py          # Streamlit dashboard
-└── models/                   # Saved ML models
+│   └── main.py                  # Streamlit application
+│
+├── data/
+│   ├── raw/                     # Kaggle CSV files
+│   └── processed/               # Transformed data
+│
+└── models/
+    └── saved/                   # Trained ML models
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### 1. Clone the Repository
+```bash
+git clone https://github.com/arnavvenkata1/MovieTrendAnalyzer.git
+cd MovieTrendAnalyzer
+```
+
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run ETL Pipeline
+### 3. Download Data
+Download from [TMDB 5000 Movies](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata) and place in `data/raw/`:
+- `tmdb_5000_movies.csv`
+- `tmdb_5000_credits.csv`
+
+### 4. Set Up Databases (Optional for full functionality)
 ```bash
-python src/etl.py
+# PostgreSQL
+createdb cineswipe
+psql -d cineswipe -f database/postgres_schema.sql
+
+# MongoDB
+# Install MongoDB or use MongoDB Atlas
 ```
 
-### 3. Train ML Models
+### 5. Load Data
 ```bash
-python src/models.py
+python src/data_loader.py
 ```
 
-### 4. Launch Dashboard
+### 6. Launch the App
 ```bash
-streamlit run app/dashboard.py
+streamlit run app/main.py
 ```
 
 ---
 
-## 📊 Database Schema
+## 🗄️ Database Architecture
 
 ### PostgreSQL (Structured Data)
-- `dim_genres`: Genre dimension table
-- `dim_movies`: Movie metadata from TMDB
-- `fact_reviews`: Individual review records
-- `fact_daily_trends`: Aggregated daily trends
-- `predictions`: ML prediction outputs
+- **dim_users** - User profiles
+- **dim_movies** - Movie metadata (from TMDB)
+- **user_preferences** - Onboarding responses
+- **fact_swipes** - Swipe history
+- **fact_recommendations** - ML recommendations
+- **model_metrics** - Model performance tracking
 
-### MongoDB (Unstructured Data)
-- `letterboxd_raw`: Raw Letterboxd reviews
-- `metacritic_raw`: Raw Metacritic reviews
-- `tmdb_movies_raw`: Raw TMDB movie data
-
----
-
-## 🤖 Machine Learning Models
-
-### Regression (Engagement Prediction)
-- **Target**: Next-day engagement (likes + comments)
-- **Features**: Lag values, moving averages, sentiment
-- **Algorithm**: Random Forest Regressor
-
-### Classification (Trend Direction)
-- **Target**: RISING / DECLINING / STABLE
-- **Features**: Same as regression
-- **Algorithm**: Logistic Regression / Random Forest
+### MongoDB (Flexible Data)
+- **user_sessions** - Detailed event tracking
+- **recommendation_explanations** - Why we recommended
+- **model_versions** - ML model metadata
+- **raw_kaggle_data** - Data lake
 
 ---
 
-## 📈 Evaluation Metrics
+## 🤖 ML Models
 
-| Model | Metric | Description |
-|-------|--------|-------------|
-| Regression | MAE | Mean Absolute Error |
-| Regression | R² | Coefficient of Determination |
-| Classification | Accuracy | Correct predictions / Total |
-| Classification | F1 Score | Harmonic mean of precision & recall |
+### 1. Content-Based Filtering
+- Uses TF-IDF on movie genres, keywords, and overviews
+- Recommends movies similar to ones you liked
+
+### 2. Collaborative Filtering  
+- Uses K-Nearest Neighbors on user swipe patterns
+- Recommends movies liked by similar users
+
+### 3. Hybrid Model
+- Combines both approaches with dynamic weighting
+- New users: Higher content weight (cold start)
+- Active users: Higher collaborative weight
 
 ---
 
-## 🔗 Data Sources
+## 📊 Key Metrics
 
-1. **Letterboxd Reviews** - Social movie reviews with engagement metrics
-2. **Metacritic Reviews** - Critic reviews with ratings
-3. **TMDB 5000** - Movie metadata and genre information
+| Metric | Description |
+|--------|-------------|
+| **Precision@K** | % of recommendations that were liked |
+| **Hit Rate** | % of users who liked at least one rec |
+| **Coverage** | % of movies that get recommended |
+| **Diversity** | Genre diversity in recommendations |
+
+---
+
+## 👥 Team Contributions
+
+### Anish Shah (dg branch)
+- Database schema design
+- PostgreSQL & MongoDB setup
+- Data loading pipeline
+- SQL analytics queries
+
+### Arnav Venkata (dev branch)
+- ML recommendation models
+- Streamlit frontend
+- User interface design
+- Model evaluation
 
 ---
 
 ## 📄 License
 
-This project is for educational purposes (CS210 Final Project).
+This project is for educational purposes (CS210 Final Project at Duke University).
+
+---
+
+## 🙏 Acknowledgments
+
+- TMDB for the movie dataset
+- Kaggle for data hosting
+- CS210 course staff

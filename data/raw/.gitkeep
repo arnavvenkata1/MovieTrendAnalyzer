@@ -1,6 +1,8 @@
-# Place your downloaded CSV files here:
-# - letterboxd-reviews.csv
-# - metacritic-reviews.csv
+# Place Kaggle CSV files here:
 # - tmdb_5000_movies.csv
 # - tmdb_5000_credits.csv
+# - letterboxd-reviews.csv (optional)
+# - metacritic-reviews.csv (optional)
 
+# Download from:
+# https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata

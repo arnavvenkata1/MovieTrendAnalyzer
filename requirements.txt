@@ -1,4 +1,4 @@
-# Movie Trend Analyzer - Dependencies
+# CineSwipe - Movie Recommendation System
 # Install with: pip install -r requirements.txt
 
 # Database Connectors
@@ -10,19 +10,24 @@ sqlalchemy==2.0.23
 pandas==2.1.3
 numpy==1.26.2
 
-# NLP & Sentiment Analysis
-nltk==3.8.1
-vaderSentiment==3.3.2
-
 # Machine Learning
 scikit-learn==1.3.2
+scipy==1.11.4
+
+# NLP & Text Processing
+nltk==3.8.1
+vaderSentiment==3.3.2
 
 # Visualization & Dashboard
 streamlit==1.29.0
 plotly==5.18.0
-matplotlib==3.8.2
+
+# Image handling (for movie posters)
+Pillow==10.1.0
+requests==2.31.0
 
 # Utilities
 python-dotenv==1.0.0
 tqdm==4.66.1
+uuid==1.30
 
