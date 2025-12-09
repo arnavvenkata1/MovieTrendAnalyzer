@@ -98,23 +98,28 @@ pip install -r requirements.txt
 ```
 
 ### 3. Download Data
-Download from [TMDB 5000 Movies](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata) and place in `data/raw/`:
-- `tmdb_5000_movies.csv`
-- `tmdb_5000_credits.csv`
+```bash
+python3 scripts/download_kaggle_data.py
+```
 
-### 4. Set Up Databases (Optional for full functionality)
+### 4. Set Up Databases
+**📖 For detailed setup instructions, see:** `docs/ANISH_SETUP_GUIDE.md`
+
+Quick setup:
 ```bash
 # PostgreSQL
 createdb cineswipe
 psql -d cineswipe -f database/postgres_schema.sql
 
-# MongoDB
-# Install MongoDB or use MongoDB Atlas
+# MongoDB (see docs/MONGODB_SETUP_INSTRUCTIONS.md for details)
+brew tap mongodb/brew
+brew install mongodb-community@7.0
+brew services start mongodb-community@7.0
 ```
 
 ### 5. Load Data
 ```bash
-python src/data_loader.py
+python3 src/data_loader.py
 ```
 
 ### 6. Launch the App

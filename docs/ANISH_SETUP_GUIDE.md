@@ -85,6 +85,12 @@ pip install -r requirements.txt
 
 ### Step 4: Download Kaggle Datasets
 
+**Option A - Automated (Recommended):**
+```bash
+python3 scripts/download_kaggle_data.py
+```
+
+**Option B - Manual:**
 1. Go to: https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata
 2. Download the dataset (you'll get a zip file)
 3. Extract and copy these files to `data/raw/`:
@@ -137,10 +143,13 @@ You should see:
 ### Step 8: Install MongoDB
 
 **Option A - Local MongoDB (Mac):**
+See detailed instructions in: `docs/MONGODB_SETUP_INSTRUCTIONS.md`
+
+Quick version:
 ```bash
 brew tap mongodb/brew
-brew install mongodb-community
-brew services start mongodb-community
+brew install mongodb-community@7.0
+brew services start mongodb-community@7.0
 ```
 
 **Option B - MongoDB Atlas (Cloud - Easier):**
@@ -203,7 +212,9 @@ DATA LOADING COMPLETE
 
 ## 📝 YOUR TASKS (What You Need to Create/Do)
 
-### Task 1: Verify Database Setup ✅
+**✅ ALL TASKS COMPLETED! See `docs/SETUP_DOCUMENTATION.md` for details.**
+
+### Task 1: Verify Database Setup ✅ COMPLETED
 After running the steps above, verify everything works:
 
 ```bash
@@ -215,9 +226,9 @@ psql -d cineswipe -c "SELECT COUNT(*) FROM dim_movies;"
 psql -d cineswipe -c "SELECT title, genres, vote_average FROM dim_movies LIMIT 5;"
 ```
 
-### Task 2: Create Analytics Queries 📊
+### Task 2: Create Analytics Queries 📊 ✅ COMPLETED
 
-Create a new file: `database/analytics_queries.sql`
+Created file: `database/analytics_queries.sql`
 
 Write these SQL queries:
 
@@ -292,9 +303,9 @@ SELECT
 FROM dim_users;
 ```
 
-### Task 3: Test Database Operations 🧪
+### Task 3: Test Database Operations 🧪 ✅ COMPLETED
 
-Create a test script: `tests/test_database.py`
+Created test script: `tests/test_database.py` (all tests passing)
 
 ```python
 """
@@ -364,12 +375,16 @@ Run it:
 python tests/test_database.py
 ```
 
-### Task 4: Document Your Setup 📄
+### Task 4: Document Your Setup 📄 ✅ COMPLETED
 
-Add notes about:
-- How you set up PostgreSQL
-- How you set up MongoDB
-- Any issues you encountered and how you fixed them
+Created comprehensive documentation: `docs/SETUP_DOCUMENTATION.md`
+
+Includes:
+- ✅ PostgreSQL setup process
+- ✅ MongoDB setup process
+- ✅ All issues encountered and solutions
+- ✅ Verification results
+- ✅ Quick reference commands
 
 ### Task 5: Commit and Push Your Work 🚀
 

@@ -42,7 +42,7 @@ class MongoDB:
     
     def get_collection(self, name):
         """Get a collection by name"""
-        if not self.db:
+        if self.db is None:
             self.connect()
         return self.db[name]
     

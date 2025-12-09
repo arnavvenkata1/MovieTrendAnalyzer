@@ -22,8 +22,8 @@ POSTGRES_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": os.getenv("POSTGRES_PORT", "5432"),
     "database": os.getenv("POSTGRES_DB", "cineswipe"),
-    "user": os.getenv("POSTGRES_USER", "postgres"),
-    "password": os.getenv("POSTGRES_PASSWORD", "postgres")
+    "user": os.getenv("POSTGRES_USER", "anish"),  # Your Mac username
+    "password": os.getenv("POSTGRES_PASSWORD", "")  # Usually empty for local PostgreSQL
 }
 
 # PostgreSQL connection string

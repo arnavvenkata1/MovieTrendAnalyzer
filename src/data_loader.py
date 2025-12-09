@@ -4,6 +4,7 @@ Loads Kaggle CSV data and populates databases
 """
 
 import pandas as pd
+import numpy as np
 import json
 import sys
 from pathlib import Path
@@ -154,8 +155,18 @@ class DataLoader:
             print("  ✗ Could not connect to MongoDB")
             return False
         
-        # Store raw records
-        records = self.movies_df.to_dict('records')
+        # Convert dataframe to dict, handling datetime/NaT values for MongoDB compatibility
+        df_copy = self.movies_df.copy()
+        
+        # Replace NaT and NaN values with None for datetime columns
+        for col in df_copy.select_dtypes(include=['datetime64']).columns:
+            df_copy[col] = df_copy[col].replace({pd.NaT: None})
+        
+        # Replace NaN values with None for other numeric columns
+        df_copy = df_copy.replace({np.nan: None, pd.NA: None})
+        
+        # Convert to dict records
+        records = df_copy.to_dict('records')
         count = mongo_db.store_raw_kaggle_data('tmdb_5000_movies', records)
         
         print(f"  ✓ Stored {count} raw records in MongoDB")
