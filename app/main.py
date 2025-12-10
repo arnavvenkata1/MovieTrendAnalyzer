@@ -165,6 +165,8 @@ def init_session_state():
         st.session_state.import_method = None  # 'manual' or 'letterboxd'
     if 'letterboxd_data' not in st.session_state:
         st.session_state.letterboxd_data = None
+    if 'letterboxd_profile_viewed' not in st.session_state:
+        st.session_state.letterboxd_profile_viewed = False
 
 
 def show_landing_page():
@@ -251,19 +253,8 @@ def show_landing_page():
                                         st.session_state.liked_movies = [m['movie_id'] for m in liked if m.get('movie_id')]
                                         st.session_state.disliked_movies = [m['movie_id'] for m in disliked if m.get('movie_id')]
                                         
-                                        # Skip onboarding if we have enough data
-                                        if len(liked) >= 3:
-                                            st.session_state.onboarding_complete = True
-                                            st.session_state.preferences = {
-                                                'preferred_genres': [],  # Will be inferred
-                                                'avoided_genres': [],
-                                                'preferred_decade': 'Any',
-                                                'mood_preference': 'Excited',
-                                                'min_rating': 6.0,
-                                                'age_group': '18-24'
-                                            }
-                                            st.balloons()
-                                        
+                                        # Will show Letterboxd profile page next
+                                        st.balloons()
                                         st.rerun()
                                     else:
                                         st.warning("No rated movies found. Try manual onboarding instead.")
@@ -277,6 +268,180 @@ def show_landing_page():
                             st.error(f"Error importing: {str(e)}")
                 else:
                     st.error("Please enter your Letterboxd username")
+
+
+def show_letterboxd_profile():
+    """Display imported Letterboxd profile with stats before swiping"""
+    import plotly.express as px
+    
+    st.markdown('<h1 class="main-header">📥 Your Letterboxd Profile</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Here\'s what we imported from your account</p>', unsafe_allow_html=True)
+    
+    letterboxd_data = st.session_state.letterboxd_data or []
+    liked_movies = st.session_state.liked_movies or []
+    disliked_movies = st.session_state.disliked_movies or []
+    
+    # Summary stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📊 Total Imported", len(letterboxd_data))
+    with col2:
+        st.metric("👍 Liked", len(liked_movies))
+    with col3:
+        st.metric("👎 Disliked", len(disliked_movies))
+    with col4:
+        matched = len([m for m in letterboxd_data if m.get('matched')])
+        st.metric("🔗 Matched to DB", matched)
+    
+    st.divider()
+    
+    # Analyze genre preferences from liked movies
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🎭 Your Favorite Genres")
+        
+        # Load movie data to get genres
+        try:
+            import json
+            json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+            
+            if json_path.exists():
+                with open(json_path, 'r') as f:
+                    all_movies = {m['movie_id']: m for m in json.load(f)}
+                
+                # Count genres from liked movies
+                genre_counts = {}
+                for movie_id in liked_movies:
+                    movie = all_movies.get(movie_id, {})
+                    for genre in movie.get('genres', []):
+                        genre_counts[genre] = genre_counts.get(genre, 0) + 1
+                
+                if genre_counts:
+                    # Sort and display
+                    sorted_genres = sorted(genre_counts.items(), key=lambda x: -x[1])
+                    
+                    # Create bar chart
+                    genre_df = pd.DataFrame(sorted_genres[:8], columns=['Genre', 'Count'])
+                    fig = px.bar(
+                        genre_df, x='Genre', y='Count',
+                        color='Count',
+                        color_continuous_scale='Reds'
+                    )
+                    fig.update_layout(
+                        showlegend=False,
+                        height=300,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Store top genres as preferences
+                    top_genres = [g[0] for g in sorted_genres[:5]]
+                    st.session_state.preferences['preferred_genres'] = top_genres
+                    
+                    st.caption(f"**Top genres:** {', '.join(top_genres[:5])}")
+                else:
+                    st.info("No genre data available from matched movies")
+        except Exception as e:
+            st.warning(f"Could not analyze genres: {e}")
+    
+    with col2:
+        st.subheader("⭐ Rating Distribution")
+        
+        # Show rating distribution
+        ratings = [m.get('letterboxd_rating') for m in letterboxd_data if m.get('letterboxd_rating')]
+        
+        if ratings:
+            rating_counts = {}
+            for r in ratings:
+                key = f"{r}★"
+                rating_counts[key] = rating_counts.get(key, 0) + 1
+            
+            rating_df = pd.DataFrame([
+                {'Rating': k, 'Count': v} 
+                for k, v in sorted(rating_counts.items())
+            ])
+            
+            fig = px.pie(
+                rating_df, values='Count', names='Rating',
+                color_discrete_sequence=px.colors.sequential.RdBu,
+                hole=0.4
+            )
+            fig.update_layout(
+                height=300,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No rating data available")
+    
+    st.divider()
+    
+    # Show imported movies table
+    st.subheader("📋 Imported Movies")
+    
+    if letterboxd_data:
+        # Create display data
+        display_data = []
+        for m in letterboxd_data[:20]:  # Show first 20
+            rating = m.get('letterboxd_rating', 'N/A')
+            status = '👍 Liked' if m.get('liked') else '👎 Passed'
+            matched = '✅' if m.get('matched') else '❌'
+            
+            display_data.append({
+                'Movie': m.get('title', 'Unknown'),
+                'Rating': f"{rating}★" if rating != 'N/A' else 'N/A',
+                'Status': status,
+                'In Database': matched
+            })
+        
+        st.dataframe(
+            pd.DataFrame(display_data),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        if len(letterboxd_data) > 20:
+            st.caption(f"Showing 20 of {len(letterboxd_data)} imported movies")
+    
+    st.divider()
+    
+    # Continue button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("### 🎬 Ready to discover new movies?")
+        st.markdown("We'll use your Letterboxd ratings to recommend movies you'll love!")
+        
+        if st.button("🚀 Start Swiping!", type="primary", use_container_width=True):
+            st.session_state.letterboxd_profile_viewed = True
+            st.session_state.onboarding_complete = True
+            
+            # Set default preferences if not already set
+            if not st.session_state.preferences:
+                st.session_state.preferences = {
+                    'preferred_genres': [],
+                    'avoided_genres': [],
+                    'preferred_decade': 'Any',
+                    'mood_preference': 'Excited',
+                    'min_rating': 6.0,
+                    'age_group': '18-24'
+                }
+            
+            st.rerun()
+        
+        st.caption("Or go back to change your account")
+        if st.button("← Use Different Account", use_container_width=True):
+            # Reset letterboxd state
+            st.session_state.user = None
+            st.session_state.letterboxd_data = None
+            st.session_state.liked_movies = []
+            st.session_state.disliked_movies = []
+            st.session_state.import_method = None
+            st.rerun()
 
 
 def show_onboarding():
@@ -952,6 +1117,9 @@ def main():
     # Navigation
     if st.session_state.user is None:
         show_landing_page()
+    elif st.session_state.import_method == 'letterboxd' and not st.session_state.letterboxd_profile_viewed:
+        # Show Letterboxd profile dashboard after import
+        show_letterboxd_profile()
     elif not st.session_state.onboarding_complete:
         show_onboarding()
     else:

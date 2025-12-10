@@ -166,13 +166,21 @@ class LetterboxdImporter:
             half_star = '½' in title
             rating = stars + (0.5 if half_star else 0)
             
-            # Clean title
+            # Clean title - remove stars
             clean_title = re.sub(r'\s*-\s*★.*$', '', title).strip()
+            
+            # Remove year suffix like ", 2025" from title
+            clean_title = re.sub(r',?\s*\d{4}\s*$', '', clean_title).strip()
             
             # Try to extract year from link
             link = entry.get('link', '')
             year_match = re.search(r'/film/[^/]+-(\d{4})/?', link)
             year = int(year_match.group(1)) if year_match else None
+            
+            # Also try to get year from title if not in link
+            if not year:
+                title_year = re.search(r',?\s*(\d{4})\s*$', title)
+                year = int(title_year.group(1)) if title_year else None
             
             return {
                 'title': clean_title,
@@ -194,14 +202,21 @@ class LetterboxdImporter:
             half_star = '½' in title
             rating = stars + (0.5 if half_star else 0) if stars > 0 else None
             
+            # Try to extract year from title first (format: "Movie, 2025 - ★★★")
+            title_year_match = re.search(r',\s*(\d{4})\s*-', title)
+            year_from_title = int(title_year_match.group(1)) if title_year_match else None
+            
             # Clean title - remove date and rating
             clean_title = re.sub(r'\s*-\s*★.*$', '', title)
-            clean_title = re.sub(r',\s*\d{4}\s*-\s*', '', clean_title).strip()
+            clean_title = re.sub(r',\s*\d{4}\s*(-|$)', '', clean_title).strip()
             
-            # Try to extract year
+            # Also remove year suffix without comma
+            clean_title = re.sub(r'\s+\d{4}\s*$', '', clean_title).strip()
+            
+            # Try to extract year from link
             link = entry.get('link', '')
             year_match = re.search(r'/film/[^/]+-(\d{4})/?', link)
-            year = int(year_match.group(1)) if year_match else None
+            year = int(year_match.group(1)) if year_match else year_from_title
             
             return {
                 'title': clean_title,
@@ -220,7 +235,13 @@ class LetterboxdImporter:
         
         matched = []
         for movie in movies:
-            title_lower = movie['title'].lower().strip()
+            # Clean the title - remove year suffix like ", 2025"
+            raw_title = movie['title']
+            title_lower = raw_title.lower().strip()
+            
+            # Remove year patterns like ", 2025" or " 2025" or "(2025)"
+            title_lower = re.sub(r',?\s*\d{4}\s*$', '', title_lower).strip()
+            title_lower = re.sub(r'\s*\(\d{4}\)\s*$', '', title_lower).strip()
             
             # Exact match first
             if title_lower in self.tmdb_movies:
@@ -231,14 +252,49 @@ class LetterboxdImporter:
                 matched.append(movie)
                 continue
             
-            # Fuzzy match if available
+            # Try without "The/A/An" prefix
+            title_no_article = re.sub(r'^(the|a|an)\s+', '', title_lower)
+            if title_no_article in self.tmdb_movies:
+                tmdb = self.tmdb_movies[title_no_article]
+                movie['movie_id'] = tmdb['movie_id']
+                movie['tmdb_title'] = tmdb['title']
+                movie['matched'] = True
+                matched.append(movie)
+                continue
+            
+            # Try adding "The" prefix
+            title_with_the = f"the {title_lower}"
+            if title_with_the in self.tmdb_movies:
+                tmdb = self.tmdb_movies[title_with_the]
+                movie['movie_id'] = tmdb['movie_id']
+                movie['tmdb_title'] = tmdb['title']
+                movie['matched'] = True
+                matched.append(movie)
+                continue
+            
+            # Try without punctuation
+            title_no_punct = re.sub(r'[^\w\s]', '', title_lower)
+            if title_no_punct in self.tmdb_movies:
+                tmdb = self.tmdb_movies[title_no_punct]
+                movie['movie_id'] = tmdb['movie_id']
+                movie['tmdb_title'] = tmdb['title']
+                movie['matched'] = True
+                matched.append(movie)
+                continue
+            
+            # Fuzzy match if available (lowered threshold to 80%)
             if fuzz:
                 best_match = None
                 best_score = 0
                 
                 for tmdb_title, tmdb_data in self.tmdb_movies.items():
-                    score = fuzz.ratio(title_lower, tmdb_title)
-                    if score > best_score and score >= 85:
+                    # Try multiple variations
+                    score1 = fuzz.ratio(title_lower, tmdb_title)
+                    score2 = fuzz.ratio(title_no_article, tmdb_title)
+                    score3 = fuzz.partial_ratio(title_lower, tmdb_title)
+                    score = max(score1, score2, score3)
+                    
+                    if score > best_score and score >= 80:
                         best_score = score
                         best_match = tmdb_data
                 
