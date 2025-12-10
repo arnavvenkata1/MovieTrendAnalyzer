@@ -142,10 +142,40 @@ class HybridRecommender:
         # Sort by combined score
         sorted_movies = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
         
-        # Build final recommendations
+        # Normalize scores to improve match percentages
+        # Boost top recommendations and normalize to 0.65-0.95 range for better UX
+        if sorted_movies:
+            scores = [s for _, s in sorted_movies[:n]]
+            if scores:
+                max_score = max(scores)
+                min_score = min(scores)
+                score_range = max_score - min_score if max_score != min_score else 1.0
+                
+                # Normalize to 0.65-0.95 range (boosting percentages)
+                normalized_scores = []
+                for score in scores:
+                    if score_range > 0:
+                        # Normalize to 0-1 first
+                        normalized = (score - min_score) / score_range
+                        # Scale to 0.65-0.95 range and add rank boost
+                        boosted_score = 0.65 + (normalized * 0.30)
+                    else:
+                        boosted_score = 0.80  # Default for equal scores
+                    
+                    normalized_scores.append(min(boosted_score, 0.95))
+            else:
+                normalized_scores = [0.80] * len(sorted_movies[:n])
+        else:
+            normalized_scores = []
+        
+        # Build final recommendations with normalized scores
         recommendations = []
-        for rank, (movie_id, score) in enumerate(sorted_movies[:n], 1):
+        for rank, ((movie_id, _), normalized_score) in enumerate(zip(sorted_movies[:n], normalized_scores), 1):
             exp = explanations.get(movie_id, {})
+            
+            # Add rank-based boost (top recommendations get slight boost)
+            rank_boost = min(0.05 * (1.0 / rank), 0.03)  # Diminishing boost
+            final_score = min(normalized_score + rank_boost, 0.95)
             
             # Create human-readable explanation
             explanation_parts = []
@@ -156,7 +186,7 @@ class HybridRecommender:
             
             recommendations.append({
                 'movie_id': movie_id,
-                'score': min(score, 1.0),  # Cap at 1.0
+                'score': final_score,
                 'algorithm': 'hybrid',
                 'rank': rank,
                 'explanation': ' | '.join(explanation_parts) if explanation_parts else 'Recommended for you',
