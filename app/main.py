@@ -794,8 +794,56 @@ def show_swipe_interface():
         genre_html = ' '.join([f'<span class="genre-tag">{g}</span>' for g in movie['genres'][:4]])
         st.markdown(f'<div style="margin: 1rem 0;">{genre_html}</div>', unsafe_allow_html=True)
         
-        # Overview
-        st.markdown(f"**Overview:** {movie['overview'][:200]}...")
+        # Overview - short preview
+        overview = movie.get('overview', '') or 'No description available.'
+        if len(overview) > 150:
+            st.markdown(f"**Overview:** {overview[:150]}...")
+            # Expandable full overview
+            with st.expander("📖 Read Full Overview"):
+                st.write(overview)
+        else:
+            st.markdown(f"**Overview:** {overview}")
+        
+        # Trailer button - fetch from TMDB API
+        import requests
+        import urllib.parse
+        
+        trailer_url = None
+        try:
+            # Direct TMDB API call for trailers
+            TMDB_API_KEY = 'fbcab977af26578c4a273d037a4f2655'
+            response = requests.get(
+                f"https://api.themoviedb.org/3/movie/{movie['movie_id']}/videos",
+                params={'api_key': TMDB_API_KEY, 'language': 'en-US'},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                videos = response.json().get('results', [])
+                # Find the best trailer (prefer Official Trailer)
+                for video_type in ['Trailer', 'Teaser']:
+                    for video in videos:
+                        if video.get('site') == 'YouTube' and video.get('type') == video_type:
+                            trailer_url = f"https://www.youtube.com/watch?v={video['key']}"
+                            break
+                    if trailer_url:
+                        break
+                
+                # Fallback to any YouTube video
+                if not trailer_url:
+                    for video in videos:
+                        if video.get('site') == 'YouTube':
+                            trailer_url = f"https://www.youtube.com/watch?v={video['key']}"
+                            break
+        except Exception as e:
+            pass  # Will fall back to search
+        
+        if trailer_url:
+            st.link_button("🎬 Watch Trailer", trailer_url, use_container_width=True)
+        else:
+            # Fallback to YouTube search
+            search_query = urllib.parse.quote(f"{movie['title']} {movie.get('release_year', '')} official trailer")
+            st.link_button("🔍 Find Trailer", f"https://www.youtube.com/results?search_query={search_query}", use_container_width=True)
         
         # Swipe buttons
         st.markdown("<br>", unsafe_allow_html=True)
@@ -864,13 +912,21 @@ def show_recommendations():
             # Get number of swipes for weight calculation
             n_swipes = len(st.session_state.swipe_history)
             
-            # Generate recommendations
+            # Get Letterboxd ratings if available (for score boosting)
+            letterboxd_ratings = {}
+            if st.session_state.letterboxd_data:
+                for m in st.session_state.letterboxd_data:
+                    if m.get('movie_id') and m.get('letterboxd_rating'):
+                        letterboxd_ratings[m['movie_id']] = m['letterboxd_rating']
+            
+            # Generate recommendations with Letterboxd data
             recommendations = model.recommend_for_user(
                 user_id=st.session_state.user_id,
                 liked_movie_ids=liked_movie_ids,
                 n=10,
                 exclude_ids=exclude_ids,
-                n_swipes=n_swipes
+                n_swipes=n_swipes,
+                letterboxd_data=letterboxd_ratings
             )
             
             if not recommendations:
@@ -999,15 +1055,29 @@ def show_analytics_dashboard():
     st.markdown('<h1 class="main-header">📊 Your Analytics</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Insights from your movie preferences</p>', unsafe_allow_html=True)
     
-    # Key metrics
-    total_swipes = len(st.session_state.swipe_history)
+    # Key metrics - include both swipes AND Letterboxd imports
     likes = len(st.session_state.liked_movies)
     dislikes = len(st.session_state.disliked_movies)
-    like_rate = likes / max(total_swipes, 1) * 100
+    manual_swipes = len(st.session_state.swipe_history)
+    
+    # Total = liked + disliked (includes Letterboxd imports)
+    total_movies_rated = likes + dislikes
+    
+    # Calculate like rate from total rated movies (not just manual swipes)
+    like_rate = (likes / max(total_movies_rated, 1)) * 100
+    
+    # Count Letterboxd imports
+    letterboxd_count = len(st.session_state.letterboxd_data) if st.session_state.letterboxd_data else 0
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Swipes", total_swipes)
+        # Show total rated with breakdown
+        if letterboxd_count > 0:
+            st.metric("Total Rated", total_movies_rated, 
+                     delta=f"+{letterboxd_count} from Letterboxd",
+                     delta_color="normal")
+        else:
+            st.metric("Total Swiped", total_movies_rated)
     with col2:
         st.metric("Movies Liked 👍", likes)
     with col3:
@@ -1017,8 +1087,8 @@ def show_analytics_dashboard():
     
     st.divider()
     
-    if total_swipes == 0:
-        st.info("👆 Start swiping to see your analytics!")
+    if total_movies_rated == 0:
+        st.info("👆 Start swiping or import from Letterboxd to see your analytics!")
         return
     
     # Load movie data for analysis - try database first, then JSON fallback
@@ -1073,7 +1143,7 @@ def show_analytics_dashboard():
         
         with col2:
             st.subheader("📈 Swipe Distribution")
-            if total_swipes > 0:
+            if total_movies_rated > 0:
                 swipe_data = pd.DataFrame({
                     'Type': ['Liked 👍', 'Passed 👎'],
                     'Count': [likes, dislikes]
@@ -1111,16 +1181,34 @@ def show_analytics_dashboard():
     except Exception as e:
         st.error(f"Error loading analytics: {e}")
         # Basic fallback
-        st.write(f"You've made {total_swipes} swipes so far!")
+        st.write(f"You've rated {total_movies_rated} movies so far!")
+    
+    # Show Letterboxd stats if available
+    if st.session_state.letterboxd_data:
+        st.divider()
+        st.subheader("📥 Your Letterboxd Import")
+        
+        lb_data = st.session_state.letterboxd_data
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Imported Movies", len(lb_data))
+        with col2:
+            matched = len([m for m in lb_data if m.get('matched')])
+            st.metric("Matched to DB", matched)
+        with col3:
+            avg_rating = sum(m.get('letterboxd_rating', 0) or 0 for m in lb_data) / max(len(lb_data), 1)
+            st.metric("Avg Rating", f"{avg_rating:.1f}★")
 
 
-def show_analytics_dashboard():
-    """Display comprehensive analytics dashboard"""
+def show_db_analytics_dashboard():
+    """Display comprehensive analytics dashboard (requires database)"""
     st.markdown('<h1 class="main-header">📊 Analytics Dashboard</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Insights into movies, users, and engagement</p>', unsafe_allow_html=True)
     
     if not ensure_db_connection():
-        st.error("⚠️ Cannot connect to database. Please ensure PostgreSQL is running.")
+        st.warning("⚠️ Database not available. Showing local analytics only.")
+        show_analytics_dashboard()
         return
     
     try:
@@ -1140,9 +1228,9 @@ def show_analytics_dashboard():
             show_recommendation_analytics()
             
     except Exception as e:
-        st.error(f"Error loading analytics: {e}")
-        import traceback
-        st.code(traceback.format_exc())
+        st.warning(f"Database analytics unavailable: {e}")
+        st.info("Showing local analytics instead...")
+        show_analytics_dashboard()
 
 
 def show_overview_analytics():
@@ -1498,6 +1586,159 @@ def show_recommendation_analytics():
         st.warning(f"Could not load most recommended movies: {e}")
 
 
+def show_my_movies():
+    """Display user's liked and disliked movies"""
+    st.markdown('<h1 class="main-header">📋 My Movies</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Your movie history and preferences</p>', unsafe_allow_html=True)
+    
+    liked_movies = st.session_state.liked_movies
+    disliked_movies = st.session_state.disliked_movies
+    
+    # Summary stats
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("👍 Liked", len(liked_movies))
+    with col2:
+        st.metric("👎 Passed", len(disliked_movies))
+    with col3:
+        total = len(liked_movies) + len(disliked_movies)
+        st.metric("📊 Total", total)
+    
+    st.divider()
+    
+    if total == 0:
+        st.info("👆 Start swiping or import from Letterboxd to see your movies here!")
+        return
+    
+    # Load movie details
+    try:
+        import json
+        json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+        
+        all_movies = {}
+        if json_path.exists():
+            with open(json_path, 'r') as f:
+                all_movies = {m['movie_id']: m for m in json.load(f)}
+        
+        # Tabs for liked and disliked
+        tab1, tab2 = st.tabs(["👍 Liked Movies", "👎 Passed Movies"])
+        
+        with tab1:
+            if liked_movies:
+                st.subheader(f"Movies You Loved ({len(liked_movies)})")
+                
+                # Display as cards
+                for i, movie_id in enumerate(liked_movies):
+                    movie = all_movies.get(movie_id, {})
+                    if movie:
+                        with st.container():
+                            col1, col2, col3 = st.columns([3, 1, 1])
+                            with col1:
+                                title = movie.get('title', f'Movie {movie_id}')
+                                year = movie.get('release_year', 'N/A')
+                                genres = movie.get('genres', [])
+                                rating = movie.get('vote_average', 0)
+                                
+                                st.markdown(f"### {title} ({year})")
+                                if genres:
+                                    st.caption(f"🎭 {', '.join(genres[:3])} • ⭐ {rating}/10")
+                            
+                            with col2:
+                                # Trailer button - inline TMDB API
+                                import requests
+                                trailer_btn_url = None
+                                try:
+                                    resp = requests.get(
+                                        f"https://api.themoviedb.org/3/movie/{movie_id}/videos",
+                                        params={'api_key': 'fbcab977af26578c4a273d037a4f2655'},
+                                        timeout=3
+                                    )
+                                    if resp.status_code == 200:
+                                        for v in resp.json().get('results', []):
+                                            if v.get('site') == 'YouTube' and v.get('type') in ['Trailer', 'Teaser']:
+                                                trailer_btn_url = f"https://www.youtube.com/watch?v={v['key']}"
+                                                break
+                                except:
+                                    pass
+                                
+                                if trailer_btn_url:
+                                    st.link_button("🎬 Trailer", trailer_btn_url)
+                            
+                            with col3:
+                                st.markdown("👍")
+                            
+                            # Expandable overview
+                            overview = movie.get('overview', '')
+                            if overview:
+                                with st.expander("📖 Overview"):
+                                    st.write(overview)
+                            
+                            st.divider()
+            else:
+                st.info("No liked movies yet. Start swiping! 👆")
+        
+        with tab2:
+            if disliked_movies:
+                st.subheader(f"Movies You Passed ({len(disliked_movies)})")
+                
+                for i, movie_id in enumerate(disliked_movies):
+                    movie = all_movies.get(movie_id, {})
+                    if movie:
+                        with st.container():
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                title = movie.get('title', f'Movie {movie_id}')
+                                year = movie.get('release_year', 'N/A')
+                                genres = movie.get('genres', [])
+                                
+                                st.markdown(f"**{title}** ({year})")
+                                if genres:
+                                    st.caption(f"🎭 {', '.join(genres[:3])}")
+                            
+                            with col2:
+                                st.markdown("👎")
+                            
+                            st.divider()
+            else:
+                st.info("No passed movies yet.")
+        
+        # Letterboxd import section
+        if st.session_state.letterboxd_data:
+            st.divider()
+            st.subheader("📥 Imported from Letterboxd")
+            
+            lb_data = st.session_state.letterboxd_data
+            matched = [m for m in lb_data if m.get('matched')]
+            unmatched = [m for m in lb_data if not m.get('matched')]
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Matched", len(matched))
+            with col2:
+                st.metric("Unmatched", len(unmatched))
+            
+            with st.expander(f"📋 View All Imported ({len(lb_data)} movies)"):
+                import_data = []
+                for m in lb_data[:50]:
+                    rating = m.get('letterboxd_rating', 'N/A')
+                    status = '👍' if m.get('liked') else '👎'
+                    matched_status = '✅' if m.get('matched') else '❌'
+                    import_data.append({
+                        'Movie': m.get('title', 'Unknown'),
+                        'Rating': f"{rating}★" if rating != 'N/A' else 'N/A',
+                        'Verdict': status,
+                        'Matched': matched_status
+                    })
+                
+                st.dataframe(pd.DataFrame(import_data), use_container_width=True, hide_index=True)
+                
+                if len(lb_data) > 50:
+                    st.caption(f"Showing 50 of {len(lb_data)} imported movies")
+    
+    except Exception as e:
+        st.error(f"Error loading movies: {e}")
+
+
 def main():
     """Main application entry point"""
     init_session_state()
@@ -1514,7 +1755,7 @@ def main():
         # Sidebar navigation
         page = st.sidebar.radio(
             "Navigate",
-            ["🎬 Swipe", "✨ Recommendations", "📊 Analytics"],
+            ["🎬 Swipe", "✨ Recommendations", "📋 My Movies", "📊 Analytics"],
             label_visibility="collapsed"
         )
         
@@ -1522,6 +1763,8 @@ def main():
             show_swipe_interface()
         elif page == "✨ Recommendations":
             show_recommendations()
+        elif page == "📋 My Movies":
+            show_my_movies()
         elif page == "📊 Analytics":
             show_analytics_dashboard()
     

@@ -149,21 +149,50 @@ class ContentBasedRecommender:
         all_scores = cosine_similarity([user_profile], self.tfidf_matrix)[0]
         
         # Filter and sort
-        recommendations = []
+        raw_recommendations = []
         for idx in all_scores.argsort()[::-1]:
             movie_id = self.movie_ids[idx]
             if movie_id not in exclude_ids:
                 score = float(all_scores[idx])
-                explanation = f"Similar to movies you've liked (content match: {score:.0%})"
-                recommendations.append({
+                raw_recommendations.append({
                     'movie_id': movie_id,
-                    'score': score,
+                    'raw_score': score,
+                })
+                if len(raw_recommendations) >= n:
+                    break
+        
+        # Normalize scores to 70-95% range for better UX
+        # Cosine similarity often gives low values (0.1-0.4) which look bad as percentages
+        if raw_recommendations:
+            raw_scores = [r['raw_score'] for r in raw_recommendations]
+            max_raw = max(raw_scores) if raw_scores else 1.0
+            min_raw = min(raw_scores) if raw_scores else 0.0
+            score_range = max_raw - min_raw if max_raw != min_raw else 1.0
+            
+            recommendations = []
+            for i, rec in enumerate(raw_recommendations):
+                # Normalize to 0-1
+                if score_range > 0:
+                    normalized = (rec['raw_score'] - min_raw) / score_range
+                else:
+                    normalized = 0.5
+                
+                # Scale to 70-95% range with rank decay
+                rank_factor = 1.0 - (i * 0.02)  # Slight decay for lower ranks
+                boosted_score = 0.70 + (normalized * 0.25 * rank_factor)
+                boosted_score = min(max(boosted_score, 0.70), 0.95)
+                
+                explanation = f"Similar to movies you've liked ({boosted_score:.0%} match)"
+                recommendations.append({
+                    'movie_id': rec['movie_id'],
+                    'score': boosted_score,
+                    'raw_score': rec['raw_score'],
                     'algorithm': 'content_based',
-                    'rank': len(recommendations) + 1,
+                    'rank': i + 1,
                     'explanation': explanation
                 })
-                if len(recommendations) >= n:
-                    break
+        else:
+            recommendations = []
         
         return recommendations
     

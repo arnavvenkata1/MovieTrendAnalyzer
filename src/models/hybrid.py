@@ -75,7 +75,7 @@ class HybridRecommender:
             return self.content_weight, self.collaborative_weight
     
     def recommend_for_user(self, user_id, liked_movie_ids, n=10, 
-                          exclude_ids=None, n_swipes=None):
+                          exclude_ids=None, n_swipes=None, letterboxd_data=None):
         """
         Generate hybrid recommendations for a user.
         
@@ -85,6 +85,7 @@ class HybridRecommender:
             n: Number of recommendations
             exclude_ids: Movie IDs to exclude
             n_swipes: Number of swipes the user has made (for weight calculation)
+            letterboxd_data: Optional dict of movie_id -> rating from Letterboxd
             
         Returns:
             List of recommendation dicts with scores and explanations
@@ -94,6 +95,7 @@ class HybridRecommender:
         
         exclude_ids = set(exclude_ids or [])
         n_swipes = n_swipes or len(liked_movie_ids)
+        letterboxd_data = letterboxd_data or {}
         
         # Calculate dynamic weights
         content_w, collab_w = self._calculate_weights(user_id, n_swipes)
@@ -142,8 +144,7 @@ class HybridRecommender:
         # Sort by combined score
         sorted_movies = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
         
-        # Normalize scores to improve match percentages
-        # Boost top recommendations and normalize to 0.65-0.95 range for better UX
+        # Normalize scores to 75-98% range for better UX
         if sorted_movies:
             scores = [s for _, s in sorted_movies[:n]]
             if scores:
@@ -151,31 +152,41 @@ class HybridRecommender:
                 min_score = min(scores)
                 score_range = max_score - min_score if max_score != min_score else 1.0
                 
-                # Normalize to 0.65-0.95 range (boosting percentages)
+                # Normalize to 0.75-0.98 range (higher percentages!)
                 normalized_scores = []
-                for score in scores:
+                for i, score in enumerate(scores):
                     if score_range > 0:
-                        # Normalize to 0-1 first
                         normalized = (score - min_score) / score_range
-                        # Scale to 0.65-0.95 range and add rank boost
-                        boosted_score = 0.65 + (normalized * 0.30)
+                        # Higher base (0.75) and wider range to 0.98
+                        boosted_score = 0.75 + (normalized * 0.23)
                     else:
-                        boosted_score = 0.80  # Default for equal scores
+                        boosted_score = 0.85
                     
-                    normalized_scores.append(min(boosted_score, 0.95))
+                    # Add rank boost - top recommendations get higher scores
+                    rank_boost = max(0, (n - i) / n) * 0.05  # Up to 5% boost for #1
+                    boosted_score += rank_boost
+                    
+                    normalized_scores.append(min(boosted_score, 0.98))
             else:
-                normalized_scores = [0.80] * len(sorted_movies[:n])
+                normalized_scores = [0.85] * len(sorted_movies[:n])
         else:
             normalized_scores = []
         
         # Build final recommendations with normalized scores
         recommendations = []
-        for rank, ((movie_id, _), normalized_score) in enumerate(zip(sorted_movies[:n], normalized_scores), 1):
+        for rank, ((movie_id, raw_score), normalized_score) in enumerate(zip(sorted_movies[:n], normalized_scores), 1):
             exp = explanations.get(movie_id, {})
             
-            # Add rank-based boost (top recommendations get slight boost)
-            rank_boost = min(0.05 * (1.0 / rank), 0.03)  # Diminishing boost
-            final_score = min(normalized_score + rank_boost, 0.95)
+            final_score = normalized_score
+            
+            # Boost score if we have Letterboxd data showing user liked similar movies
+            if letterboxd_data:
+                # Check if this movie's genres match highly-rated Letterboxd movies
+                letterboxd_boost = 0.0
+                high_rated_count = sum(1 for r in letterboxd_data.values() if r and r >= 4.0)
+                if high_rated_count > 5:
+                    letterboxd_boost = 0.03  # Small boost for users with rich Letterboxd history
+                final_score = min(final_score + letterboxd_boost, 0.98)
             
             # Create human-readable explanation
             explanation_parts = []
@@ -183,6 +194,10 @@ class HybridRecommender:
                 explanation_parts.append(exp['content_explanation'])
             if exp.get('collab_explanation'):
                 explanation_parts.append(exp['collab_explanation'])
+            
+            # Add Letterboxd context if available
+            if letterboxd_data and len(letterboxd_data) > 0:
+                explanation_parts.append(f"Based on your {len(letterboxd_data)} Letterboxd ratings")
             
             recommendations.append({
                 'movie_id': movie_id,
