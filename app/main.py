@@ -1,8 +1,3 @@
-"""
-CineSwipe - Main Streamlit Application
-Movie Recommendation System with Swipe Interface
-"""
-
 import streamlit as st
 import pandas as pd
 import sys
@@ -11,17 +6,13 @@ import uuid
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.express as px
-import plotly.graph_objects as go
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.settings import APP_CONFIG, GENRE_OPTIONS, MOOD_OPTIONS, AGE_GROUPS, DECADE_OPTIONS
 from src.utils.db_postgres import db as postgres_db
 from src.utils.db_mongo import mongo_db
 
-# Page configuration
 st.set_page_config(
     page_title="CineSwipe 🎬",
     page_icon="🎬",
@@ -29,7 +20,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
@@ -131,7 +121,6 @@ st.markdown("""
         font-size: 0.9rem;
     }
     
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -139,7 +128,6 @@ st.markdown("""
 
 
 def init_session_state():
-    """Initialize session state variables"""
     if 'user_id' not in st.session_state:
         st.session_state.user_id = None
     if 'username' not in st.session_state:
@@ -164,9 +152,8 @@ def init_session_state():
         st.session_state.movies_to_show = []
     if 'db_connected' not in st.session_state:
         st.session_state.db_connected = False
-    # Letterboxd import state
     if 'import_method' not in st.session_state:
-        st.session_state.import_method = None  # 'manual' or 'letterboxd'
+        st.session_state.import_method = None
     if 'letterboxd_data' not in st.session_state:
         st.session_state.letterboxd_data = None
     if 'letterboxd_profile_viewed' not in st.session_state:
@@ -174,7 +161,6 @@ def init_session_state():
 
 
 def show_landing_page():
-    """Display landing page for new users"""
     st.markdown('<h1 class="main-header">🎬 CineSwipe</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Swipe your way to your next favorite movie</p>', unsafe_allow_html=True)
     
@@ -191,7 +177,6 @@ def show_landing_page():
         ---
         """)
         
-        # Choose signup method
         signup_method = st.radio(
             "Choose how to get started:",
             ["✍️ New User (Manual Onboarding)", "📥 Import from Letterboxd"],
@@ -212,7 +197,7 @@ def show_landing_page():
                 else:
                     st.error("Please enter a username")
         
-        else:  # Letterboxd Import
+        else:
             st.markdown("""
             #### 📥 Import from Letterboxd
             Enter your **public** Letterboxd username to import your ratings.
@@ -241,13 +226,11 @@ def show_landing_page():
                                     movies = importer.get_user_ratings(letterboxd_username, limit=50)
                                     
                                     if movies:
-                                        # Separate liked and disliked
                                         liked = [m for m in movies if m.get('liked') and m.get('matched')]
                                         disliked = [m for m in movies if not m.get('liked') and m.get('matched')]
                                         
                                         st.success(f"🎬 Imported {len(liked)} liked and {len(disliked)} disliked movies!")
                                         
-                                        # Store in session state
                                         st.session_state.user = {
                                             'username': letterboxd_username,
                                             'user_id': hash(letterboxd_username) % 10000
@@ -257,7 +240,6 @@ def show_landing_page():
                                         st.session_state.liked_movies = [m['movie_id'] for m in liked if m.get('movie_id')]
                                         st.session_state.disliked_movies = [m['movie_id'] for m in disliked if m.get('movie_id')]
                                         
-                                        # Will show Letterboxd profile page next
                                         st.balloons()
                                         st.rerun()
                                     else:
@@ -275,9 +257,6 @@ def show_landing_page():
 
 
 def show_letterboxd_profile():
-    """Display imported Letterboxd profile with stats before swiping"""
-    import plotly.express as px
-    
     st.markdown('<h1 class="main-header">📥 Your Letterboxd Profile</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Here\'s what we imported from your account</p>', unsafe_allow_html=True)
     
@@ -285,7 +264,6 @@ def show_letterboxd_profile():
     liked_movies = st.session_state.liked_movies or []
     disliked_movies = st.session_state.disliked_movies or []
     
-    # Summary stats
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("📊 Total Imported", len(letterboxd_data))
@@ -299,13 +277,11 @@ def show_letterboxd_profile():
     
     st.divider()
     
-    # Analyze genre preferences from liked movies
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("🎭 Your Favorite Genres")
         
-        # Load movie data to get genres
         try:
             import json
             json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
@@ -314,7 +290,6 @@ def show_letterboxd_profile():
                 with open(json_path, 'r') as f:
                     all_movies = {m['movie_id']: m for m in json.load(f)}
                 
-                # Count genres from liked movies
                 genre_counts = {}
                 for movie_id in liked_movies:
                     movie = all_movies.get(movie_id, {})
@@ -322,10 +297,8 @@ def show_letterboxd_profile():
                         genre_counts[genre] = genre_counts.get(genre, 0) + 1
                 
                 if genre_counts:
-                    # Sort and display
                     sorted_genres = sorted(genre_counts.items(), key=lambda x: -x[1])
                     
-                    # Create bar chart
                     genre_df = pd.DataFrame(sorted_genres[:8], columns=['Genre', 'Count'])
                     fig = px.bar(
                         genre_df, x='Genre', y='Count',
@@ -341,7 +314,6 @@ def show_letterboxd_profile():
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Store top genres as preferences
                     top_genres = [g[0] for g in sorted_genres[:5]]
                     st.session_state.preferences['preferred_genres'] = top_genres
                     
@@ -354,7 +326,6 @@ def show_letterboxd_profile():
     with col2:
         st.subheader("⭐ Rating Distribution")
         
-        # Show rating distribution
         ratings = [m.get('letterboxd_rating') for m in letterboxd_data if m.get('letterboxd_rating')]
         
         if ratings:
@@ -385,13 +356,11 @@ def show_letterboxd_profile():
     
     st.divider()
     
-    # Show imported movies table
     st.subheader("📋 Imported Movies")
     
     if letterboxd_data:
-        # Create display data
         display_data = []
-        for m in letterboxd_data[:20]:  # Show first 20
+        for m in letterboxd_data[:20]:
             rating = m.get('letterboxd_rating', 'N/A')
             status = '👍 Liked' if m.get('liked') else '👎 Passed'
             matched = '✅' if m.get('matched') else '❌'
@@ -414,7 +383,6 @@ def show_letterboxd_profile():
     
     st.divider()
     
-    # Continue button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("### 🎬 Ready to discover new movies?")
@@ -424,7 +392,6 @@ def show_letterboxd_profile():
             st.session_state.letterboxd_profile_viewed = True
             st.session_state.onboarding_complete = True
             
-            # Set default preferences if not already set
             if not st.session_state.preferences:
                 st.session_state.preferences = {
                     'preferred_genres': [],
@@ -439,7 +406,6 @@ def show_letterboxd_profile():
         
         st.caption("Or go back to change your account")
         if st.button("← Use Different Account", use_container_width=True):
-            # Reset letterboxd state
             st.session_state.user = None
             st.session_state.letterboxd_data = None
             st.session_state.liked_movies = []
@@ -449,7 +415,6 @@ def show_letterboxd_profile():
 
 
 def show_onboarding():
-    """Display onboarding questionnaire"""
     st.markdown('<h1 class="main-header">🎯 Let\'s Get to Know You</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Help us find movies you\'ll love</p>', unsafe_allow_html=True)
     
@@ -469,7 +434,6 @@ def show_onboarding():
         )
         
         st.subheader("3. What's your mood today? 🎭")
-        mood_cols = st.columns(4)
         mood_options_display = {m[0]: f"{m[2]} {m[1]}" for m in MOOD_OPTIONS}
         selected_mood = st.radio(
             "Select your mood:",
@@ -509,7 +473,6 @@ def show_onboarding():
             if len(preferred_genres) < 2:
                 st.error("Please select at least 2 favorite genres")
             else:
-                # Save preferences to session state
                 st.session_state.preferences = {
                     'preferred_genres': preferred_genres,
                     'avoided_genres': avoided_genres,
@@ -519,14 +482,11 @@ def show_onboarding():
                     'age_group': age_group
                 }
                 
-                # Create user in database
                 if ensure_db_connection():
                     try:
-                        # Generate username if not set
                         if not st.session_state.username:
                             st.session_state.username = f"user_{uuid.uuid4().hex[:8]}"
                         
-                        # Create user
                         user = postgres_db.create_user(
                             username=st.session_state.username,
                             age_group=age_group
@@ -536,7 +496,6 @@ def show_onboarding():
                             st.session_state.user_id = user['user_id']
                             st.session_state.username = user['username']
                             
-                            # Save preferences to database
                             postgres_db.update_user_preferences(
                                 user_id=st.session_state.user_id,
                                 preferences={
@@ -548,7 +507,6 @@ def show_onboarding():
                                 }
                             )
                             
-                            # Create MongoDB session
                             mongo_db.create_session(
                                 user_id=st.session_state.user_id,
                                 session_id=st.session_state.session_id
@@ -565,7 +523,6 @@ def show_onboarding():
 
 
 def ensure_db_connection():
-    """Ensure database connections are established"""
     if not st.session_state.db_connected:
         try:
             postgres_db.connect()
@@ -579,32 +536,22 @@ def ensure_db_connection():
 
 
 def load_movies_from_database(user_id=None, limit=20):
-    """Load movies from PostgreSQL database
-    
-    Args:
-        user_id: Optional user ID to exclude already-swiped movies
-        limit: Number of movies to load
-    """
     if not ensure_db_connection():
-        # Fallback to sample movies if DB connection fails
         return load_sample_movies_fallback()
     
     try:
-        # Get already swiped movies if user exists
         exclude_ids = []
         if user_id:
             exclude_ids = postgres_db.get_swiped_movie_ids(user_id)
         
-        # Get user preferences for filtering
         preferences = st.session_state.preferences if st.session_state.preferences else {}
         preferred_genres = preferences.get('preferred_genres', [])
         min_rating = preferences.get('min_rating', 6.0)
         
-        # Load movies based on preferences
         if preferred_genres:
             movies = postgres_db.get_movies_by_genre(
                 genres=preferred_genres,
-                limit=limit * 2,  # Get more to filter by rating
+                limit=limit * 2,
                 exclude_ids=exclude_ids
             )
         else:
@@ -614,11 +561,9 @@ def load_movies_from_database(user_id=None, limit=20):
                 min_rating=min_rating
             )
         
-        # Filter by minimum rating and convert to dict format
         result_movies = []
         for movie in movies[:limit]:
             if movie.get('vote_average', 0) >= min_rating:
-                # Convert genres from list/array to list
                 genres = movie.get('genres', [])
                 if isinstance(genres, str):
                     import ast
@@ -640,7 +585,6 @@ def load_movies_from_database(user_id=None, limit=20):
         if result_movies:
             return result_movies
         else:
-            # If no movies match preferences, get any random movies
             return load_sample_movies_fallback()
             
     except Exception as e:
@@ -649,15 +593,13 @@ def load_movies_from_database(user_id=None, limit=20):
 
 
 def record_swipe(movie_id, direction):
-    """Record a swipe to the database"""
     if not st.session_state.user_id:
-        return  # Can't record if no user
+        return
     
     if not ensure_db_connection():
-        return  # Can't record if DB not connected
+        return
     
     try:
-        # Record swipe to PostgreSQL
         postgres_db.record_swipe(
             user_id=st.session_state.user_id,
             movie_id=movie_id,
@@ -665,7 +607,6 @@ def record_swipe(movie_id, direction):
             session_id=st.session_state.session_id
         )
         
-        # Record event to MongoDB session
         mongo_db.add_session_event(
             session_id=st.session_state.session_id,
             event_type='swipe',
@@ -675,29 +616,24 @@ def record_swipe(movie_id, direction):
             }
         )
     except Exception as e:
-        # Silently fail - don't interrupt user experience
         pass
 
 
 def load_sample_movies_fallback():
-    """Fallback sample movies if database query fails - loads from JSON or hardcoded"""
     import json
     
-    # Try to load from generated JSON file first
     json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
     
     if json_path.exists():
         try:
             with open(json_path, 'r') as f:
                 movies = json.load(f)
-            # Shuffle for variety
             import random
             random.shuffle(movies)
-            return movies[:50]  # Return 50 random movies per session
+            return movies[:50]
         except Exception as e:
             print(f"Error loading movies JSON: {e}")
     
-    # Fallback to hardcoded sample movies
     return [
         {
             'movie_id': 19995, 'title': 'Avatar', 'release_year': 2009,
@@ -728,10 +664,8 @@ def load_sample_movies_fallback():
 
 
 def show_swipe_interface():
-    """Display the movie swiping interface"""
     st.markdown('<h1 class="main-header">🎬 Discover Movies</h1>', unsafe_allow_html=True)
     
-    # Load movies if not loaded
     if not st.session_state.movies_to_show:
         st.session_state.movies_to_show = load_movies_from_database(
             user_id=st.session_state.user_id,
@@ -741,7 +675,6 @@ def show_swipe_interface():
     movies = st.session_state.movies_to_show
     idx = st.session_state.current_movie_idx
     
-    # Stats sidebar
     with st.sidebar:
         st.markdown("### 📊 Your Stats")
         col1, col2 = st.columns(2)
@@ -761,7 +694,6 @@ def show_swipe_interface():
             st.session_state.disliked_movies = []
             st.rerun()
     
-    # Check if we have movies to show
     if idx >= len(movies):
         st.success("🎉 You've seen all available movies!")
         st.markdown("### Your Liked Movies:")
@@ -779,7 +711,6 @@ def show_swipe_interface():
     
     movie = movies[idx]
     
-    # Movie card
     col1, col2, col3 = st.columns([1, 3, 1])
     
     with col2:
@@ -790,27 +721,22 @@ def show_swipe_interface():
         </div>
         """, unsafe_allow_html=True)
         
-        # Genre tags
         genre_html = ' '.join([f'<span class="genre-tag">{g}</span>' for g in movie['genres'][:4]])
         st.markdown(f'<div style="margin: 1rem 0;">{genre_html}</div>', unsafe_allow_html=True)
         
-        # Overview - short preview
         overview = movie.get('overview', '') or 'No description available.'
         if len(overview) > 150:
             st.markdown(f"**Overview:** {overview[:150]}...")
-            # Expandable full overview
             with st.expander("📖 Read Full Overview"):
                 st.write(overview)
         else:
             st.markdown(f"**Overview:** {overview}")
         
-        # Trailer button - fetch from TMDB API
         import requests
         import urllib.parse
         
         trailer_url = None
         try:
-            # Direct TMDB API call for trailers
             TMDB_API_KEY = 'fbcab977af26578c4a273d037a4f2655'
             response = requests.get(
                 f"https://api.themoviedb.org/3/movie/{movie['movie_id']}/videos",
@@ -820,7 +746,6 @@ def show_swipe_interface():
             
             if response.status_code == 200:
                 videos = response.json().get('results', [])
-                # Find the best trailer (prefer Official Trailer)
                 for video_type in ['Trailer', 'Teaser']:
                     for video in videos:
                         if video.get('site') == 'YouTube' and video.get('type') == video_type:
@@ -829,23 +754,20 @@ def show_swipe_interface():
                     if trailer_url:
                         break
                 
-                # Fallback to any YouTube video
                 if not trailer_url:
                     for video in videos:
                         if video.get('site') == 'YouTube':
                             trailer_url = f"https://www.youtube.com/watch?v={video['key']}"
                             break
         except Exception as e:
-            pass  # Will fall back to search
+            pass
         
         if trailer_url:
             st.link_button("🎬 Watch Trailer", trailer_url, use_container_width=True)
         else:
-            # Fallback to YouTube search
             search_query = urllib.parse.quote(f"{movie['title']} {movie.get('release_year', '')} official trailer")
             st.link_button("🔍 Find Trailer", f"https://www.youtube.com/results?search_query={search_query}", use_container_width=True)
         
-        # Swipe buttons
         st.markdown("<br>", unsafe_allow_html=True)
         btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
         
@@ -881,13 +803,11 @@ def show_swipe_interface():
                 st.session_state.current_movie_idx += 1
                 st.rerun()
         
-        # Progress
         progress = (idx + 1) / len(movies)
         st.progress(progress, text=f"Movie {idx + 1} of {len(movies)}")
 
 
 def show_recommendations():
-    """Display personalized recommendations using ML models with DB integration"""
     st.markdown('<h1 class="main-header">✨ Your Recommendations</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Based on your preferences and swipes</p>', unsafe_allow_html=True)
     
@@ -898,28 +818,23 @@ def show_recommendations():
         return
     
     try:
-        # Try to load hybrid model first (Anish's version)
         from src.models.hybrid import HybridRecommender
         
         with st.spinner("🤖 Generating personalized recommendations..."):
             model = HybridRecommender()
             model.load('hybrid')
             
-            # Get user's liked movies
             liked_movie_ids = st.session_state.liked_movies
             exclude_ids = list(set(st.session_state.liked_movies + st.session_state.disliked_movies))
             
-            # Get number of swipes for weight calculation
             n_swipes = len(st.session_state.swipe_history)
             
-            # Get Letterboxd ratings if available (for score boosting)
             letterboxd_ratings = {}
             if st.session_state.letterboxd_data:
                 for m in st.session_state.letterboxd_data:
                     if m.get('movie_id') and m.get('letterboxd_rating'):
                         letterboxd_ratings[m['movie_id']] = m['letterboxd_rating']
             
-            # Generate recommendations with Letterboxd data
             recommendations = model.recommend_for_user(
                 user_id=st.session_state.user_id,
                 liked_movie_ids=liked_movie_ids,
@@ -933,18 +848,15 @@ def show_recommendations():
                 st.warning("No recommendations available. Try liking more movies!")
                 return
             
-            # Fetch movie details from database
             if ensure_db_connection():
                 movie_ids = [r['movie_id'] for r in recommendations]
                 
-                # Get movie details
                 movie_details = {}
                 for movie_id in movie_ids:
                     movie = postgres_db.get_movie(movie_id=movie_id)
                     if movie:
                         movie_details[movie_id] = movie
                 
-                # Display recommendations
                 st.success(f"🎯 Found {len(recommendations)} movies we think you'll love!")
                 st.divider()
                 
@@ -972,19 +884,17 @@ def show_recommendations():
                             st.metric("Match", f"{score*100:.0f}%")
                         st.divider()
                 
-                # Save recommendations to database
                 try:
                     postgres_db.save_recommendations(
                         user_id=st.session_state.user_id,
                         recommendations=recommendations
                     )
                 except Exception as e:
-                    pass  # Silently fail
+                    pass
             else:
                 st.warning("⚠️ Could not load movie details from database")
                 
     except (FileNotFoundError, Exception) as e:
-        # Fallback to content-based model (offline mode)
         try:
             from src.models.content_based import ContentBasedRecommender
             import json
@@ -1048,30 +958,21 @@ def show_recommendations():
 
 
 def show_analytics_dashboard():
-    """Display analytics dashboard with charts"""
-    import plotly.express as px
-    import plotly.graph_objects as go
-    
     st.markdown('<h1 class="main-header">📊 Your Analytics</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Insights from your movie preferences</p>', unsafe_allow_html=True)
     
-    # Key metrics - include both swipes AND Letterboxd imports
     likes = len(st.session_state.liked_movies)
     dislikes = len(st.session_state.disliked_movies)
     manual_swipes = len(st.session_state.swipe_history)
     
-    # Total = liked + disliked (includes Letterboxd imports)
     total_movies_rated = likes + dislikes
     
-    # Calculate like rate from total rated movies (not just manual swipes)
     like_rate = (likes / max(total_movies_rated, 1)) * 100
     
-    # Count Letterboxd imports
     letterboxd_count = len(st.session_state.letterboxd_data) if st.session_state.letterboxd_data else 0
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        # Show total rated with breakdown
         if letterboxd_count > 0:
             st.metric("Total Rated", total_movies_rated, 
                      delta=f"+{letterboxd_count} from Letterboxd",
@@ -1091,26 +992,22 @@ def show_analytics_dashboard():
         st.info("👆 Start swiping or import from Letterboxd to see your analytics!")
         return
     
-    # Load movie data for analysis - try database first, then JSON fallback
     try:
         import json
         all_movies = {}
         
-        # Try database first
         if ensure_db_connection():
             for movie_id in st.session_state.liked_movies + st.session_state.disliked_movies:
                 movie = postgres_db.get_movie(movie_id=movie_id)
                 if movie:
                     all_movies[movie_id] = movie
         
-        # Fallback to JSON if database empty
         if not all_movies:
             json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
             if json_path.exists():
                 with open(json_path, 'r') as f:
                     all_movies = {m['movie_id']: m for m in json.load(f)}
         
-        # Analyze liked movies by genre
         genre_counts = {}
         for movie_id in st.session_state.liked_movies:
             movie = all_movies.get(movie_id, {})
@@ -1160,10 +1057,9 @@ def show_analytics_dashboard():
                 )
                 st.plotly_chart(fig, use_container_width=True)
         
-        # Swipe history table
         st.subheader("📋 Your Swipe History")
         history_data = []
-        for swipe in st.session_state.swipe_history[-20:]:  # Last 20
+        for swipe in st.session_state.swipe_history[-20:]:
             movie = all_movies.get(swipe['movie_id'], {})
             history_data.append({
                 'Movie': movie.get('title', 'Unknown'),
@@ -1180,10 +1076,8 @@ def show_analytics_dashboard():
     
     except Exception as e:
         st.error(f"Error loading analytics: {e}")
-        # Basic fallback
         st.write(f"You've rated {total_movies_rated} movies so far!")
     
-    # Show Letterboxd stats if available
     if st.session_state.letterboxd_data:
         st.divider()
         st.subheader("📥 Your Letterboxd Import")
@@ -1201,400 +1095,13 @@ def show_analytics_dashboard():
             st.metric("Avg Rating", f"{avg_rating:.1f}★")
 
 
-def show_db_analytics_dashboard():
-    """Display comprehensive analytics dashboard (requires database)"""
-    st.markdown('<h1 class="main-header">📊 Analytics Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Insights into movies, users, and engagement</p>', unsafe_allow_html=True)
-    
-    if not ensure_db_connection():
-        st.warning("⚠️ Database not available. Showing local analytics only.")
-        show_analytics_dashboard()
-        return
-    
-    try:
-        # Tab layout for different analytics sections
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🎬 Movies", "👥 Users", "🤖 Recommendations"])
-        
-        with tab1:
-            show_overview_analytics()
-        
-        with tab2:
-            show_movie_analytics()
-        
-        with tab3:
-            show_user_analytics()
-        
-        with tab4:
-            show_recommendation_analytics()
-            
-    except Exception as e:
-        st.warning(f"Database analytics unavailable: {e}")
-        st.info("Showing local analytics instead...")
-        show_analytics_dashboard()
-
-
-def show_overview_analytics():
-    """Show high-level overview metrics"""
-    st.subheader("📊 Platform Overview")
-    
-    # Key Metrics
-    try:
-        # Total users
-        users_query = "SELECT COUNT(*) as count FROM dim_users"
-        users_result = postgres_db.execute_query(users_query)
-        total_users = users_result[0]['count'] if users_result else 0
-        
-        # Total swipes
-        swipes_query = "SELECT COUNT(*) as count FROM fact_swipes"
-        swipes_result = postgres_db.execute_query(swipes_query)
-        total_swipes = swipes_result[0]['count'] if swipes_result else 0
-        
-        # Total movies
-        movies_query = "SELECT COUNT(*) as count FROM dim_movies"
-        movies_result = postgres_db.execute_query(movies_query)
-        total_movies = movies_result[0]['count'] if movies_result else 0
-        
-        # Like rate
-        like_rate_query = """
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN swipe_direction = 'right' THEN 1 ELSE 0 END) as likes
-            FROM fact_swipes
-        """
-        like_rate_result = postgres_db.execute_query(like_rate_query)
-        if like_rate_result and like_rate_result[0]['total'] > 0:
-            like_rate = (like_rate_result[0]['likes'] / like_rate_result[0]['total']) * 100
-        else:
-            like_rate = 0
-        
-        # Display metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("👥 Total Users", f"{total_users:,}")
-        with col2:
-            st.metric("🎬 Total Movies", f"{total_movies:,}")
-        with col3:
-            st.metric("👆 Total Swipes", f"{total_swipes:,}")
-        with col4:
-            st.metric("👍 Like Rate", f"{like_rate:.1f}%")
-        
-        st.divider()
-        
-        # Swipe activity over time (if data exists)
-        if total_swipes > 0:
-            st.subheader("📅 Swipe Activity Over Time")
-            daily_activity_query = """
-                SELECT 
-                    DATE(swipe_timestamp) as date,
-                    COUNT(*) as total_swipes,
-                    SUM(CASE WHEN swipe_direction = 'right' THEN 1 ELSE 0 END) as likes,
-                    SUM(CASE WHEN swipe_direction = 'left' THEN 1 ELSE 0 END) as passes
-                FROM fact_swipes
-                GROUP BY DATE(swipe_timestamp)
-                ORDER BY date DESC
-                LIMIT 30
-            """
-            daily_data = postgres_db.execute_query(daily_activity_query)
-            
-            if daily_data:
-                df_daily = pd.DataFrame(daily_data)
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['total_swipes'], 
-                                       name='Total Swipes', line=dict(color='#1f77b4')))
-                fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['likes'], 
-                                       name='Likes', line=dict(color='#2ca02c')))
-                fig.update_layout(title='Daily Swipe Activity (Last 30 Days)',
-                                xaxis_title='Date', yaxis_title='Count',
-                                hovermode='x unified')
-                st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Could not load overview metrics: {e}")
-
-
-def show_movie_analytics():
-    """Show movie-related analytics"""
-    st.subheader("🎬 Movie Analytics")
-    
-    # Top rated movies
-    st.markdown("### ⭐ Top Rated Movies")
-    try:
-        top_rated_query = """
-            SELECT title, vote_average, vote_count, release_year, genres
-            FROM dim_movies
-            WHERE vote_count > 100
-            ORDER BY vote_average DESC
-            LIMIT 10
-        """
-        top_rated = postgres_db.execute_query(top_rated_query)
-        
-        if top_rated:
-            df_top = pd.DataFrame(top_rated)
-            st.dataframe(df_top[['title', 'vote_average', 'vote_count', 'release_year']], 
-                        use_container_width=True, hide_index=True)
-        else:
-            st.info("No movie data available")
-    except Exception as e:
-        st.warning(f"Could not load top rated movies: {e}")
-    
-    st.divider()
-    
-    # Genre distribution
-    st.markdown("### 🎭 Genre Distribution")
-    try:
-        genre_query = """
-            SELECT 
-                UNNEST(genres) as genre,
-                COUNT(*) as movie_count,
-                ROUND(AVG(vote_average)::numeric, 2) as avg_rating
-            FROM dim_movies
-            GROUP BY UNNEST(genres)
-            ORDER BY movie_count DESC
-            LIMIT 15
-        """
-        genre_data = postgres_db.execute_query(genre_query)
-        
-        if genre_data:
-            df_genre = pd.DataFrame(genre_data)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Bar chart - movie count by genre
-                fig_count = px.bar(df_genre.head(10), x='genre', y='movie_count',
-                                  title='Movies per Genre (Top 10)',
-                                  labels={'genre': 'Genre', 'movie_count': 'Number of Movies'},
-                                  color='movie_count', color_continuous_scale='Blues')
-                fig_count.update_layout(xaxis_tickangle=-45, showlegend=False)
-                st.plotly_chart(fig_count, use_container_width=True)
-            
-            with col2:
-                # Bar chart - average rating by genre
-                df_genre_sorted = df_genre.sort_values('avg_rating', ascending=False).head(10)
-                fig_rating = px.bar(df_genre_sorted, x='genre', y='avg_rating',
-                                   title='Average Rating by Genre (Top 10)',
-                                   labels={'genre': 'Genre', 'avg_rating': 'Average Rating'},
-                                   color='avg_rating', color_continuous_scale='Greens')
-                fig_rating.update_layout(xaxis_tickangle=-45, showlegend=False)
-                st.plotly_chart(fig_rating, use_container_width=True)
-        else:
-            st.info("No genre data available")
-    except Exception as e:
-        st.warning(f"Could not load genre analytics: {e}")
-    
-    st.divider()
-    
-    # Movies by decade
-    st.markdown("### 📅 Movies by Decade")
-    try:
-        decade_query = """
-            SELECT 
-                (release_year / 10) * 10 as decade,
-                COUNT(*) as movie_count,
-                ROUND(AVG(vote_average)::numeric, 2) as avg_rating
-            FROM dim_movies
-            WHERE release_year IS NOT NULL
-            GROUP BY (release_year / 10) * 10
-            ORDER BY decade DESC
-        """
-        decade_data = postgres_db.execute_query(decade_query)
-        
-        if decade_data:
-            df_decade = pd.DataFrame(decade_data)
-            df_decade['decade_label'] = df_decade['decade'].astype(int).astype(str) + 's'
-            
-            fig = px.bar(df_decade, x='decade_label', y='movie_count',
-                        title='Movies by Decade',
-                        labels={'decade_label': 'Decade', 'movie_count': 'Number of Movies'},
-                        color='avg_rating', color_continuous_scale='Viridis',
-                        text='movie_count')
-            fig.update_traces(texttemplate='%{text}', textposition='outside')
-            fig.update_layout(xaxis_tickangle=-45, showlegend=True)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No decade data available")
-    except Exception as e:
-        st.warning(f"Could not load decade analytics: {e}")
-
-
-def show_user_analytics():
-    """Show user engagement analytics"""
-    st.subheader("👥 User Engagement Analytics")
-    
-    # User retention
-    st.markdown("### 📊 User Engagement Levels")
-    try:
-        retention_query = """
-            SELECT 
-                COUNT(DISTINCT user_id) as total_users,
-                COUNT(DISTINCT CASE WHEN total_swipes >= 5 THEN user_id END) as users_5plus,
-                COUNT(DISTINCT CASE WHEN total_swipes >= 10 THEN user_id END) as users_10plus,
-                COUNT(DISTINCT CASE WHEN total_swipes >= 20 THEN user_id END) as users_20plus,
-                COUNT(DISTINCT CASE WHEN total_swipes >= 50 THEN user_id END) as power_users
-            FROM dim_users
-        """
-        retention_data = postgres_db.execute_query(retention_query)
-        
-        if retention_data and retention_data[0]['total_users'] > 0:
-            ret = retention_data[0]
-            total = ret['total_users']
-            
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("Total Users", f"{total}")
-            with col2:
-                st.metric("5+ Swipes", f"{ret['users_5plus']}", 
-                         delta=f"{ret['users_5plus']/total*100:.1f}%")
-            with col3:
-                st.metric("10+ Swipes", f"{ret['users_10plus']}",
-                         delta=f"{ret['users_10plus']/total*100:.1f}%")
-            with col4:
-                st.metric("20+ Swipes", f"{ret['users_20plus']}",
-                         delta=f"{ret['users_20plus']/total*100:.1f}%")
-            with col5:
-                st.metric("Power Users", f"{ret['power_users']}",
-                         delta=f"{ret['power_users']/total*100:.1f}%")
-        else:
-            st.info("No user data available yet")
-    except Exception as e:
-        st.warning(f"Could not load user retention: {e}")
-    
-    st.divider()
-    
-    # Genre preferences
-    st.markdown("### 🎭 User Genre Preferences")
-    try:
-        pref_query = """
-            SELECT 
-                UNNEST(preferred_genres) as genre,
-                COUNT(*) as user_count
-            FROM user_preferences
-            GROUP BY UNNEST(preferred_genres)
-            ORDER BY user_count DESC
-            LIMIT 15
-        """
-        pref_data = postgres_db.execute_query(pref_query)
-        
-        if pref_data:
-            df_pref = pd.DataFrame(pref_data)
-            fig = px.pie(df_pref, values='user_count', names='genre',
-                        title='User Genre Preferences Distribution')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No user preference data available yet")
-    except Exception as e:
-        st.warning(f"Could not load genre preferences: {e}")
-    
-    st.divider()
-    
-    # Most active users
-    st.markdown("### 🏆 Most Active Users")
-    try:
-        active_users_query = """
-            SELECT username, total_swipes, total_right_swipes, created_at
-            FROM dim_users
-            WHERE total_swipes > 0
-            ORDER BY total_swipes DESC
-            LIMIT 10
-        """
-        active_users = postgres_db.execute_query(active_users_query)
-        
-        if active_users:
-            df_active = pd.DataFrame(active_users)
-            df_active['like_rate'] = (df_active['total_right_swipes'] / df_active['total_swipes'] * 100).round(1)
-            st.dataframe(df_active[['username', 'total_swipes', 'total_right_swipes', 'like_rate']],
-                        use_container_width=True, hide_index=True,
-                        column_config={
-                            "username": "Username",
-                            "total_swipes": "Total Swipes",
-                            "total_right_swipes": "Likes",
-                            "like_rate": st.column_config.NumberColumn("Like Rate %", format="%.1f")
-                        })
-        else:
-            st.info("No active users yet")
-    except Exception as e:
-        st.warning(f"Could not load active users: {e}")
-
-
-def show_recommendation_analytics():
-    """Show recommendation performance analytics"""
-    st.subheader("🤖 Recommendation Analytics")
-    
-    # Recommendation performance
-    st.markdown("### 📈 Recommendation Performance")
-    try:
-        rec_query = """
-            SELECT 
-                algorithm_used,
-                COUNT(*) as total_recs,
-                SUM(CASE WHEN was_shown THEN 1 ELSE 0 END) as shown,
-                SUM(CASE WHEN was_swiped_right THEN 1 ELSE 0 END) as liked,
-                ROUND(AVG(score)::numeric, 3) as avg_confidence
-            FROM fact_recommendations
-            GROUP BY algorithm_used
-            ORDER BY liked DESC
-        """
-        rec_data = postgres_db.execute_query(rec_query)
-        
-        if rec_data and len(rec_data) > 0:
-            df_rec = pd.DataFrame(rec_data)
-            df_rec['hit_rate'] = (df_rec['liked'] / df_rec['shown'].replace(0, 1) * 100).round(1)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.dataframe(df_rec, use_container_width=True, hide_index=True)
-            
-            with col2:
-                if len(df_rec) > 0:
-                    fig = px.bar(df_rec, x='algorithm_used', y='hit_rate',
-                                title='Hit Rate by Algorithm',
-                                labels={'algorithm_used': 'Algorithm', 'hit_rate': 'Hit Rate (%)'},
-                                color='hit_rate', color_continuous_scale='YlOrRd')
-                    fig.update_layout(showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No recommendation data available yet. Recommendations will appear here once users receive suggestions.")
-    except Exception as e:
-        st.warning(f"Could not load recommendation analytics: {e}")
-    
-    st.divider()
-    
-    # Most recommended movies
-    st.markdown("### 🎯 Most Recommended Movies")
-    try:
-        top_rec_query = """
-            SELECT 
-                m.title,
-                COUNT(r.rec_id) as times_recommended,
-                SUM(CASE WHEN r.was_swiped_right THEN 1 ELSE 0 END) as times_liked,
-                ROUND(AVG(r.score)::numeric, 3) as avg_score
-            FROM fact_recommendations r
-            JOIN dim_movies m ON r.movie_id = m.movie_id
-            GROUP BY m.movie_id, m.title
-            ORDER BY times_recommended DESC
-            LIMIT 10
-        """
-        top_rec = postgres_db.execute_query(top_rec_query)
-        
-        if top_rec:
-            df_top_rec = pd.DataFrame(top_rec)
-            df_top_rec['success_rate'] = (df_top_rec['times_liked'] / df_top_rec['times_recommended'] * 100).round(1)
-            st.dataframe(df_top_rec, use_container_width=True, hide_index=True)
-        else:
-            st.info("No recommendation history yet")
-    except Exception as e:
-        st.warning(f"Could not load most recommended movies: {e}")
-
-
 def show_my_movies():
-    """Display user's liked and disliked movies"""
     st.markdown('<h1 class="main-header">📋 My Movies</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Your movie history and preferences</p>', unsafe_allow_html=True)
     
     liked_movies = st.session_state.liked_movies
     disliked_movies = st.session_state.disliked_movies
     
-    # Summary stats
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("👍 Liked", len(liked_movies))
@@ -1610,7 +1117,6 @@ def show_my_movies():
         st.info("👆 Start swiping or import from Letterboxd to see your movies here!")
         return
     
-    # Load movie details
     try:
         import json
         json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
@@ -1620,14 +1126,12 @@ def show_my_movies():
             with open(json_path, 'r') as f:
                 all_movies = {m['movie_id']: m for m in json.load(f)}
         
-        # Tabs for liked and disliked
         tab1, tab2 = st.tabs(["👍 Liked Movies", "👎 Passed Movies"])
         
         with tab1:
             if liked_movies:
                 st.subheader(f"Movies You Loved ({len(liked_movies)})")
                 
-                # Display as cards
                 for i, movie_id in enumerate(liked_movies):
                     movie = all_movies.get(movie_id, {})
                     if movie:
@@ -1644,7 +1148,6 @@ def show_my_movies():
                                     st.caption(f"🎭 {', '.join(genres[:3])} • ⭐ {rating}/10")
                             
                             with col2:
-                                # Trailer button - inline TMDB API
                                 import requests
                                 trailer_btn_url = None
                                 try:
@@ -1667,7 +1170,6 @@ def show_my_movies():
                             with col3:
                                 st.markdown("👍")
                             
-                            # Expandable overview
                             overview = movie.get('overview', '')
                             if overview:
                                 with st.expander("📖 Overview"):
@@ -1702,7 +1204,6 @@ def show_my_movies():
             else:
                 st.info("No passed movies yet.")
         
-        # Letterboxd import section
         if st.session_state.letterboxd_data:
             st.divider()
             st.subheader("📥 Imported from Letterboxd")
@@ -1740,19 +1241,15 @@ def show_my_movies():
 
 
 def main():
-    """Main application entry point"""
     init_session_state()
     
-    # Navigation
     if st.session_state.user is None:
         show_landing_page()
     elif st.session_state.import_method == 'letterboxd' and not st.session_state.letterboxd_profile_viewed:
-        # Show Letterboxd profile dashboard after import
         show_letterboxd_profile()
     elif not st.session_state.onboarding_complete:
         show_onboarding()
     else:
-        # Sidebar navigation
         page = st.sidebar.radio(
             "Navigate",
             ["🎬 Swipe", "✨ Recommendations", "📋 My Movies", "📊 Analytics"],
@@ -1768,7 +1265,6 @@ def main():
         elif page == "📊 Analytics":
             show_analytics_dashboard()
     
-    # Footer
     st.markdown("---")
     st.markdown(
         '<p style="text-align: center; color: #666;">CineSwipe | CS210 Data Management | Anish Shah & Arnav Venkata</p>',
@@ -1778,4 +1274,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
