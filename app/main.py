@@ -848,51 +848,62 @@ def show_recommendations():
                 st.warning("No recommendations available. Try liking more movies!")
                 return
             
-            if ensure_db_connection():
-                movie_ids = [r['movie_id'] for r in recommendations]
-                
-                movie_details = {}
-                for movie_id in movie_ids:
-                    movie = postgres_db.get_movie(movie_id=movie_id)
-                    if movie:
-                        movie_details[movie_id] = movie
-                
-                st.success(f"🎯 Found {len(recommendations)} movies we think you'll love!")
-                st.divider()
-                
-                for i, rec in enumerate(recommendations, 1):
-                    movie_id = rec['movie_id']
-                    movie = movie_details.get(movie_id, {})
-                    
-                    with st.container():
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            title = movie.get('title', f'Movie {movie_id}')
-                            year = movie.get('release_year', 'N/A')
-                            genres = movie.get('genres', [])
-                            overview = movie.get('overview', '')
-                            
-                            st.markdown(f"### {i}. {title} ({year})")
-                            if genres:
-                                genre_tags = ' '.join([f'`{g}`' for g in genres[:3]])
-                                st.markdown(genre_tags)
-                            if overview:
-                                st.caption(overview[:150] + '...' if len(overview) > 150 else overview)
-                            st.caption(f"💡 {rec.get('explanation', 'Recommended for you')}")
-                        with col2:
-                            score = rec.get('score', 0)
-                            st.metric("Match", f"{score*100:.0f}%")
-                        st.divider()
-                
+            import json
+            movie_details = {}
+            
+            json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+            if json_path.exists():
                 try:
+                    with open(json_path, 'r') as f:
+                        movie_details = {m['movie_id']: m for m in json.load(f)}
+                except:
+                    pass
+            
+            if not movie_details:
+                try:
+                    if ensure_db_connection():
+                        for rec in recommendations:
+                            movie = postgres_db.get_movie(movie_id=rec['movie_id'])
+                            if movie:
+                                movie_details[rec['movie_id']] = movie
+                except:
+                    pass
+            
+            st.success(f"🎯 Found {len(recommendations)} movies we think you'll love!")
+            st.divider()
+            
+            for i, rec in enumerate(recommendations, 1):
+                movie_id = rec['movie_id']
+                movie = movie_details.get(movie_id, {})
+                
+                with st.container():
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        title = movie.get('title', f'Movie {movie_id}')
+                        year = movie.get('release_year', 'N/A')
+                        genres = movie.get('genres', [])
+                        overview = movie.get('overview', '')
+                        
+                        st.markdown(f"### {i}. {title} ({year})")
+                        if genres:
+                            genre_tags = ' '.join([f'`{g}`' for g in genres[:3]])
+                            st.markdown(genre_tags)
+                        if overview:
+                            st.caption(overview[:150] + '...' if len(overview) > 150 else overview)
+                        st.caption(f"💡 {rec.get('explanation', 'Recommended for you')}")
+                    with col2:
+                        score = rec.get('score', 0)
+                        st.metric("Match", f"{score*100:.0f}%")
+                    st.divider()
+            
+            try:
+                if ensure_db_connection():
                     postgres_db.save_recommendations(
                         user_id=st.session_state.user_id,
                         recommendations=recommendations
                     )
-                except Exception as e:
-                    pass
-            else:
-                st.warning("⚠️ Could not load movie details from database")
+            except:
+                pass
                 
     except (FileNotFoundError, Exception) as e:
         try:
