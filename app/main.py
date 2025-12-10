@@ -992,91 +992,92 @@ def show_analytics_dashboard():
         st.info("👆 Start swiping or import from Letterboxd to see your analytics!")
         return
     
-    try:
-        import json
-        all_movies = {}
-        
-        if ensure_db_connection():
-            for movie_id in st.session_state.liked_movies + st.session_state.disliked_movies:
-                movie = postgres_db.get_movie(movie_id=movie_id)
-                if movie:
-                    all_movies[movie_id] = movie
-        
-        if not all_movies:
-            json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
-            if json_path.exists():
-                with open(json_path, 'r') as f:
-                    all_movies = {m['movie_id']: m for m in json.load(f)}
-        
-        genre_counts = {}
-        for movie_id in st.session_state.liked_movies:
-            movie = all_movies.get(movie_id, {})
-            for genre in movie.get('genres', []):
-                genre_counts[genre] = genre_counts.get(genre, 0) + 1
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🎭 Your Favorite Genres")
-            if genre_counts:
-                genre_df = pd.DataFrame([
-                    {'Genre': k, 'Count': v} 
-                    for k, v in sorted(genre_counts.items(), key=lambda x: -x[1])
-                ])
-                fig = px.bar(
-                    genre_df, x='Genre', y='Count',
-                    color='Count',
-                    color_continuous_scale='Reds'
-                )
-                fig.update_layout(
-                    showlegend=False,
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='white'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Like some movies to see genre preferences!")
-        
-        with col2:
-            st.subheader("📈 Swipe Distribution")
-            if total_movies_rated > 0:
-                swipe_data = pd.DataFrame({
-                    'Type': ['Liked 👍', 'Passed 👎'],
-                    'Count': [likes, dislikes]
-                })
-                fig = px.pie(
-                    swipe_data, values='Count', names='Type',
-                    color_discrete_sequence=['#00C851', '#ff4444'],
-                    hole=0.4
-                )
-                fig.update_layout(
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='white'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("📋 Your Swipe History")
-        history_data = []
-        for swipe in st.session_state.swipe_history[-20:]:
-            movie = all_movies.get(swipe['movie_id'], {})
-            history_data.append({
-                'Movie': movie.get('title', 'Unknown'),
-                'Year': movie.get('release_year', 'N/A'),
-                'Verdict': '👍 Liked' if swipe['direction'] == 'right' else '👎 Passed'
-            })
-        
-        if history_data:
-            st.dataframe(
-                pd.DataFrame(history_data),
-                use_container_width=True,
-                hide_index=True
-            )
+    import json
+    all_movies = {}
     
-    except Exception as e:
-        st.error(f"Error loading analytics: {e}")
-        st.write(f"You've rated {total_movies_rated} movies so far!")
+    json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+    if json_path.exists():
+        try:
+            with open(json_path, 'r') as f:
+                all_movies = {m['movie_id']: m for m in json.load(f)}
+        except:
+            pass
+    
+    if not all_movies:
+        try:
+            if ensure_db_connection():
+                for movie_id in st.session_state.liked_movies + st.session_state.disliked_movies:
+                    movie = postgres_db.get_movie(movie_id=movie_id)
+                    if movie:
+                        all_movies[movie_id] = movie
+        except:
+            pass
+    
+    genre_counts = {}
+    for movie_id in st.session_state.liked_movies:
+        movie = all_movies.get(movie_id, {})
+        for genre in movie.get('genres', []):
+            genre_counts[genre] = genre_counts.get(genre, 0) + 1
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🎭 Your Favorite Genres")
+        if genre_counts:
+            genre_df = pd.DataFrame([
+                {'Genre': k, 'Count': v} 
+                for k, v in sorted(genre_counts.items(), key=lambda x: -x[1])
+            ])
+            fig = px.bar(
+                genre_df, x='Genre', y='Count',
+                color='Count',
+                color_continuous_scale='Reds'
+            )
+            fig.update_layout(
+                showlegend=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.write("Like some movies to see genre preferences!")
+    
+    with col2:
+        st.subheader("📈 Swipe Distribution")
+        if total_movies_rated > 0:
+            swipe_data = pd.DataFrame({
+                'Type': ['Liked 👍', 'Passed 👎'],
+                'Count': [likes, dislikes]
+            })
+            fig = px.pie(
+                swipe_data, values='Count', names='Type',
+                color_discrete_sequence=['#00C851', '#ff4444'],
+                hole=0.4
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    st.subheader("📋 Your Swipe History")
+    history_data = []
+    for swipe in st.session_state.swipe_history[-20:]:
+        movie = all_movies.get(swipe['movie_id'], {})
+        history_data.append({
+            'Movie': movie.get('title', 'Unknown'),
+            'Year': movie.get('release_year', 'N/A'),
+            'Verdict': '👍 Liked' if swipe['direction'] == 'right' else '👎 Passed'
+        })
+    
+    if history_data:
+        st.dataframe(
+            pd.DataFrame(history_data),
+            use_container_width=True,
+            hide_index=True
+        )
     
     if st.session_state.letterboxd_data:
         st.divider()

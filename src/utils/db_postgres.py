@@ -32,23 +32,30 @@ class PostgresDB:
     @contextmanager
     def get_cursor(self, dict_cursor=False):
         if not self.conn:
-            self.connect()
+            if not self.connect():
+                raise ConnectionError("Database connection not available")
+        if not self.conn:
+            raise ConnectionError("Database connection not available")
         cursor_factory = RealDictCursor if dict_cursor else None
         cursor = self.conn.cursor(cursor_factory=cursor_factory)
         try:
             yield cursor
             self.conn.commit()
         except Exception as e:
-            self.conn.rollback()
+            if self.conn:
+                self.conn.rollback()
             raise e
         finally:
             cursor.close()
     
     def execute_query(self, query, params=None, fetch=True):
-        with self.get_cursor(dict_cursor=True) as cur:
-            cur.execute(query, params)
-            if fetch:
-                return cur.fetchall()
+        try:
+            with self.get_cursor(dict_cursor=True) as cur:
+                cur.execute(query, params)
+                if fetch:
+                    return cur.fetchall()
+                return None
+        except Exception:
             return None
     
     def execute_many(self, query, data):
