@@ -425,25 +425,49 @@ def record_swipe(movie_id, direction):
 
 
 def load_sample_movies_fallback():
-    """Fallback sample movies if database query fails"""
+    """Fallback sample movies if database query fails - loads from JSON or hardcoded"""
+    import json
+    
+    # Try to load from generated JSON file first
+    json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+    
+    if json_path.exists():
+        try:
+            with open(json_path, 'r') as f:
+                movies = json.load(f)
+            # Shuffle for variety
+            import random
+            random.shuffle(movies)
+            return movies[:50]  # Return 50 random movies per session
+        except Exception as e:
+            print(f"Error loading movies JSON: {e}")
+    
+    # Fallback to hardcoded sample movies
     return [
         {
-            'movie_id': 1, 'title': 'Inception', 'release_year': 2010,
-            'genres': ['Action', 'Science Fiction', 'Thriller'],
-            'vote_average': 8.4, 'overview': 'A thief who enters the dreams of others.',
-            'poster_url': 'https://image.tmdb.org/t/p/w500/9gk7adHYeDvHkCSEqAvQNLV5Ber.jpg'
+            'movie_id': 19995, 'title': 'Avatar', 'release_year': 2009,
+            'genres': ['Action', 'Adventure', 'Fantasy', 'Science Fiction'],
+            'vote_average': 7.2, 'overview': 'In the 22nd century, a paraplegic Marine is dispatched to the moon Pandora on a unique mission...'
         },
         {
-            'movie_id': 2, 'title': 'The Dark Knight', 'release_year': 2008,
-            'genres': ['Action', 'Crime', 'Drama'],
-            'vote_average': 8.5, 'overview': 'Batman faces the Joker.',
-            'poster_url': 'https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg'
+            'movie_id': 285, 'title': 'Pirates of the Caribbean: At World\'s End', 'release_year': 2007,
+            'genres': ['Adventure', 'Fantasy', 'Action'],
+            'vote_average': 6.9, 'overview': 'Captain Barbossa, long believed to be dead, has come back to life...'
         },
         {
-            'movie_id': 3, 'title': 'Interstellar', 'release_year': 2014,
-            'genres': ['Adventure', 'Drama', 'Science Fiction'],
-            'vote_average': 8.4, 'overview': 'A team of explorers travel through a wormhole.',
-            'poster_url': 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'
+            'movie_id': 206647, 'title': 'Spectre', 'release_year': 2015,
+            'genres': ['Action', 'Adventure', 'Crime'],
+            'vote_average': 6.3, 'overview': 'A cryptic message from Bond\'s past sends him on a trail to uncover a sinister organization...'
+        },
+        {
+            'movie_id': 49026, 'title': 'The Dark Knight Rises', 'release_year': 2012,
+            'genres': ['Action', 'Crime', 'Drama', 'Thriller'],
+            'vote_average': 7.6, 'overview': 'Following the death of District Attorney Harvey Dent, Batman assumes responsibility...'
+        },
+        {
+            'movie_id': 49529, 'title': 'John Carter', 'release_year': 2012,
+            'genres': ['Action', 'Adventure', 'Science Fiction'],
+            'vote_average': 6.1, 'overview': 'John Carter, a Civil War veteran, is transported to Mars...'
         },
     ]
 
@@ -560,16 +584,18 @@ def show_swipe_interface():
 
 
 def show_recommendations():
-    """Display personalized recommendations using ML models"""
+    """Display personalized recommendations using ML models with DB integration"""
     st.markdown('<h1 class="main-header">✨ Your Recommendations</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Based on your preferences and swipes</p>', unsafe_allow_html=True)
     
-    if len(st.session_state.liked_movies) < APP_CONFIG['min_swipes_for_recommendations']:
-        st.warning(f"👆 Swipe on at least {APP_CONFIG['min_swipes_for_recommendations']} movies to get personalized recommendations!")
+    min_swipes = APP_CONFIG.get('min_swipes_for_recommendations', 3)
+    if len(st.session_state.liked_movies) < min_swipes:
+        st.warning(f"👆 Swipe on at least {min_swipes} movies to get personalized recommendations!")
+        st.info("Go to the Swipe tab and like some movies to unlock AI recommendations!")
         return
     
     try:
-        # Load hybrid model
+        # Try to load hybrid model first (Anish's version)
         from src.models.hybrid import HybridRecommender
         
         with st.spinner("🤖 Generating personalized recommendations..."):
@@ -646,12 +672,191 @@ def show_recommendations():
             else:
                 st.warning("⚠️ Could not load movie details from database")
                 
-    except FileNotFoundError:
-        st.warning("⚠️ ML models not found. Please run: `python3 scripts/train_models.py`")
+    except (FileNotFoundError, Exception) as e:
+        # Fallback to content-based model (offline mode)
+        try:
+            from src.models.content_based import ContentBasedRecommender
+            import json
+            
+            model_path = Path(__file__).parent.parent / 'models' / 'saved' / 'content_based_model.pkl'
+            json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+            
+            if model_path.exists() and json_path.exists():
+                model = ContentBasedRecommender()
+                model.load('content_based_model.pkl')
+                
+                with open(json_path, 'r') as f:
+                    all_movies = {m['movie_id']: m for m in json.load(f)}
+                
+                liked_ids = st.session_state.liked_movies
+                all_swiped = liked_ids + st.session_state.disliked_movies
+                
+                recommendations = model.recommend_for_user(
+                    liked_movie_ids=liked_ids,
+                    n=10,
+                    exclude_ids=all_swiped
+                )
+                
+                if recommendations:
+                    st.success(f"🎯 Based on the {len(liked_ids)} movies you liked, here are our top picks!")
+                    
+                    for i, rec in enumerate(recommendations, 1):
+                        movie = all_movies.get(rec['movie_id'], {})
+                        title = movie.get('title', f"Movie {rec['movie_id']}")
+                        year = movie.get('release_year', 'N/A')
+                        genres = movie.get('genres', [])
+                        overview = movie.get('overview', '')[:200]
+                        
+                        with st.container():
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                st.markdown(f"### {i}. {title} ({year})")
+                                if genres:
+                                    st.caption(f"🎭 {', '.join(genres[:3])}")
+                                st.write(f"{overview}..." if overview else "")
+                                st.caption(f"💡 {rec.get('explanation', 'Similar to movies you liked')}")
+                            with col2:
+                                score_pct = min(rec['score'] * 100, 99)
+                                st.metric("Match", f"{score_pct:.0f}%")
+                            st.divider()
+                else:
+                    st.info("Keep swiping to improve your recommendations!")
+            else:
+                st.warning("⚠️ ML model not found. Run `python src/train_models_offline.py` first!")
+                
+        except Exception as e2:
+            st.error(f"Error loading recommendations: {e2}")
+            st.info("Showing sample recommendations...")
+            sample_recs = [
+                {'title': 'Inception', 'year': 2010, 'score': 0.95, 'reason': 'Mind-bending thriller'},
+                {'title': 'The Matrix', 'year': 1999, 'score': 0.92, 'reason': 'Sci-Fi classic'},
+                {'title': 'Interstellar', 'year': 2014, 'score': 0.89, 'reason': 'Epic space adventure'},
+            ]
+            for i, rec in enumerate(sample_recs, 1):
+                st.markdown(f"**{i}. {rec['title']}** ({rec['year']}) - {rec['reason']}")
+
+
+def show_analytics_dashboard():
+    """Display analytics dashboard with charts"""
+    import plotly.express as px
+    import plotly.graph_objects as go
+    
+    st.markdown('<h1 class="main-header">📊 Your Analytics</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Insights from your movie preferences</p>', unsafe_allow_html=True)
+    
+    # Key metrics
+    total_swipes = len(st.session_state.swipe_history)
+    likes = len(st.session_state.liked_movies)
+    dislikes = len(st.session_state.disliked_movies)
+    like_rate = likes / max(total_swipes, 1) * 100
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Swipes", total_swipes)
+    with col2:
+        st.metric("Movies Liked 👍", likes)
+    with col3:
+        st.metric("Movies Passed 👎", dislikes)
+    with col4:
+        st.metric("Like Rate", f"{like_rate:.1f}%")
+    
+    st.divider()
+    
+    if total_swipes == 0:
+        st.info("👆 Start swiping to see your analytics!")
+        return
+    
+    # Load movie data for analysis - try database first, then JSON fallback
+    try:
+        import json
+        all_movies = {}
+        
+        # Try database first
+        if ensure_db_connection():
+            for movie_id in st.session_state.liked_movies + st.session_state.disliked_movies:
+                movie = postgres_db.get_movie(movie_id=movie_id)
+                if movie:
+                    all_movies[movie_id] = movie
+        
+        # Fallback to JSON if database empty
+        if not all_movies:
+            json_path = Path(__file__).parent.parent / 'data' / 'processed' / 'sample_movies.json'
+            if json_path.exists():
+                with open(json_path, 'r') as f:
+                    all_movies = {m['movie_id']: m for m in json.load(f)}
+        
+        # Analyze liked movies by genre
+        genre_counts = {}
+        for movie_id in st.session_state.liked_movies:
+            movie = all_movies.get(movie_id, {})
+            for genre in movie.get('genres', []):
+                genre_counts[genre] = genre_counts.get(genre, 0) + 1
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("🎭 Your Favorite Genres")
+            if genre_counts:
+                genre_df = pd.DataFrame([
+                    {'Genre': k, 'Count': v} 
+                    for k, v in sorted(genre_counts.items(), key=lambda x: -x[1])
+                ])
+                fig = px.bar(
+                    genre_df, x='Genre', y='Count',
+                    color='Count',
+                    color_continuous_scale='Reds'
+                )
+                fig.update_layout(
+                    showlegend=False,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font_color='white'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("Like some movies to see genre preferences!")
+        
+        with col2:
+            st.subheader("📈 Swipe Distribution")
+            if total_swipes > 0:
+                swipe_data = pd.DataFrame({
+                    'Type': ['Liked 👍', 'Passed 👎'],
+                    'Count': [likes, dislikes]
+                })
+                fig = px.pie(
+                    swipe_data, values='Count', names='Type',
+                    color_discrete_sequence=['#00C851', '#ff4444'],
+                    hole=0.4
+                )
+                fig.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font_color='white'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        
+        # Swipe history table
+        st.subheader("📋 Your Swipe History")
+        history_data = []
+        for swipe in st.session_state.swipe_history[-20:]:  # Last 20
+            movie = all_movies.get(swipe['movie_id'], {})
+            history_data.append({
+                'Movie': movie.get('title', 'Unknown'),
+                'Year': movie.get('release_year', 'N/A'),
+                'Verdict': '👍 Liked' if swipe['direction'] == 'right' else '👎 Passed'
+            })
+        
+        if history_data:
+            st.dataframe(
+                pd.DataFrame(history_data),
+                use_container_width=True,
+                hide_index=True
+            )
+    
     except Exception as e:
-        st.error(f"Error generating recommendations: {e}")
-        import traceback
-        st.code(traceback.format_exc())
+        st.error(f"Error loading analytics: {e}")
+        # Basic fallback
+        st.write(f"You've made {total_swipes} swipes so far!")
 
 
 def main():
@@ -676,18 +881,7 @@ def main():
         elif page == "✨ Recommendations":
             show_recommendations()
         elif page == "📊 Analytics":
-            st.markdown('<h1 class="main-header">📊 Analytics Dashboard</h1>', unsafe_allow_html=True)
-            st.info("Analytics dashboard coming soon!")
-            
-            # Show some basic stats
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Swipes", len(st.session_state.swipe_history))
-            with col2:
-                st.metric("Movies Liked", len(st.session_state.liked_movies))
-            with col3:
-                like_rate = len(st.session_state.liked_movies) / max(len(st.session_state.swipe_history), 1) * 100
-                st.metric("Like Rate", f"{like_rate:.1f}%")
+            show_analytics_dashboard()
     
     # Footer
     st.markdown("---")
