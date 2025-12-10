@@ -9,6 +9,10 @@ import sys
 from pathlib import Path
 import uuid
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1108,6 +1112,390 @@ def show_analytics_dashboard():
         st.error(f"Error loading analytics: {e}")
         # Basic fallback
         st.write(f"You've made {total_swipes} swipes so far!")
+
+
+def show_analytics_dashboard():
+    """Display comprehensive analytics dashboard"""
+    st.markdown('<h1 class="main-header">📊 Analytics Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Insights into movies, users, and engagement</p>', unsafe_allow_html=True)
+    
+    if not ensure_db_connection():
+        st.error("⚠️ Cannot connect to database. Please ensure PostgreSQL is running.")
+        return
+    
+    try:
+        # Tab layout for different analytics sections
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🎬 Movies", "👥 Users", "🤖 Recommendations"])
+        
+        with tab1:
+            show_overview_analytics()
+        
+        with tab2:
+            show_movie_analytics()
+        
+        with tab3:
+            show_user_analytics()
+        
+        with tab4:
+            show_recommendation_analytics()
+            
+    except Exception as e:
+        st.error(f"Error loading analytics: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+
+def show_overview_analytics():
+    """Show high-level overview metrics"""
+    st.subheader("📊 Platform Overview")
+    
+    # Key Metrics
+    try:
+        # Total users
+        users_query = "SELECT COUNT(*) as count FROM dim_users"
+        users_result = postgres_db.execute_query(users_query)
+        total_users = users_result[0]['count'] if users_result else 0
+        
+        # Total swipes
+        swipes_query = "SELECT COUNT(*) as count FROM fact_swipes"
+        swipes_result = postgres_db.execute_query(swipes_query)
+        total_swipes = swipes_result[0]['count'] if swipes_result else 0
+        
+        # Total movies
+        movies_query = "SELECT COUNT(*) as count FROM dim_movies"
+        movies_result = postgres_db.execute_query(movies_query)
+        total_movies = movies_result[0]['count'] if movies_result else 0
+        
+        # Like rate
+        like_rate_query = """
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN swipe_direction = 'right' THEN 1 ELSE 0 END) as likes
+            FROM fact_swipes
+        """
+        like_rate_result = postgres_db.execute_query(like_rate_query)
+        if like_rate_result and like_rate_result[0]['total'] > 0:
+            like_rate = (like_rate_result[0]['likes'] / like_rate_result[0]['total']) * 100
+        else:
+            like_rate = 0
+        
+        # Display metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("👥 Total Users", f"{total_users:,}")
+        with col2:
+            st.metric("🎬 Total Movies", f"{total_movies:,}")
+        with col3:
+            st.metric("👆 Total Swipes", f"{total_swipes:,}")
+        with col4:
+            st.metric("👍 Like Rate", f"{like_rate:.1f}%")
+        
+        st.divider()
+        
+        # Swipe activity over time (if data exists)
+        if total_swipes > 0:
+            st.subheader("📅 Swipe Activity Over Time")
+            daily_activity_query = """
+                SELECT 
+                    DATE(swipe_timestamp) as date,
+                    COUNT(*) as total_swipes,
+                    SUM(CASE WHEN swipe_direction = 'right' THEN 1 ELSE 0 END) as likes,
+                    SUM(CASE WHEN swipe_direction = 'left' THEN 1 ELSE 0 END) as passes
+                FROM fact_swipes
+                GROUP BY DATE(swipe_timestamp)
+                ORDER BY date DESC
+                LIMIT 30
+            """
+            daily_data = postgres_db.execute_query(daily_activity_query)
+            
+            if daily_data:
+                df_daily = pd.DataFrame(daily_data)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['total_swipes'], 
+                                       name='Total Swipes', line=dict(color='#1f77b4')))
+                fig.add_trace(go.Scatter(x=df_daily['date'], y=df_daily['likes'], 
+                                       name='Likes', line=dict(color='#2ca02c')))
+                fig.update_layout(title='Daily Swipe Activity (Last 30 Days)',
+                                xaxis_title='Date', yaxis_title='Count',
+                                hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Could not load overview metrics: {e}")
+
+
+def show_movie_analytics():
+    """Show movie-related analytics"""
+    st.subheader("🎬 Movie Analytics")
+    
+    # Top rated movies
+    st.markdown("### ⭐ Top Rated Movies")
+    try:
+        top_rated_query = """
+            SELECT title, vote_average, vote_count, release_year, genres
+            FROM dim_movies
+            WHERE vote_count > 100
+            ORDER BY vote_average DESC
+            LIMIT 10
+        """
+        top_rated = postgres_db.execute_query(top_rated_query)
+        
+        if top_rated:
+            df_top = pd.DataFrame(top_rated)
+            st.dataframe(df_top[['title', 'vote_average', 'vote_count', 'release_year']], 
+                        use_container_width=True, hide_index=True)
+        else:
+            st.info("No movie data available")
+    except Exception as e:
+        st.warning(f"Could not load top rated movies: {e}")
+    
+    st.divider()
+    
+    # Genre distribution
+    st.markdown("### 🎭 Genre Distribution")
+    try:
+        genre_query = """
+            SELECT 
+                UNNEST(genres) as genre,
+                COUNT(*) as movie_count,
+                ROUND(AVG(vote_average)::numeric, 2) as avg_rating
+            FROM dim_movies
+            GROUP BY UNNEST(genres)
+            ORDER BY movie_count DESC
+            LIMIT 15
+        """
+        genre_data = postgres_db.execute_query(genre_query)
+        
+        if genre_data:
+            df_genre = pd.DataFrame(genre_data)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Bar chart - movie count by genre
+                fig_count = px.bar(df_genre.head(10), x='genre', y='movie_count',
+                                  title='Movies per Genre (Top 10)',
+                                  labels={'genre': 'Genre', 'movie_count': 'Number of Movies'},
+                                  color='movie_count', color_continuous_scale='Blues')
+                fig_count.update_layout(xaxis_tickangle=-45, showlegend=False)
+                st.plotly_chart(fig_count, use_container_width=True)
+            
+            with col2:
+                # Bar chart - average rating by genre
+                df_genre_sorted = df_genre.sort_values('avg_rating', ascending=False).head(10)
+                fig_rating = px.bar(df_genre_sorted, x='genre', y='avg_rating',
+                                   title='Average Rating by Genre (Top 10)',
+                                   labels={'genre': 'Genre', 'avg_rating': 'Average Rating'},
+                                   color='avg_rating', color_continuous_scale='Greens')
+                fig_rating.update_layout(xaxis_tickangle=-45, showlegend=False)
+                st.plotly_chart(fig_rating, use_container_width=True)
+        else:
+            st.info("No genre data available")
+    except Exception as e:
+        st.warning(f"Could not load genre analytics: {e}")
+    
+    st.divider()
+    
+    # Movies by decade
+    st.markdown("### 📅 Movies by Decade")
+    try:
+        decade_query = """
+            SELECT 
+                (release_year / 10) * 10 as decade,
+                COUNT(*) as movie_count,
+                ROUND(AVG(vote_average)::numeric, 2) as avg_rating
+            FROM dim_movies
+            WHERE release_year IS NOT NULL
+            GROUP BY (release_year / 10) * 10
+            ORDER BY decade DESC
+        """
+        decade_data = postgres_db.execute_query(decade_query)
+        
+        if decade_data:
+            df_decade = pd.DataFrame(decade_data)
+            df_decade['decade_label'] = df_decade['decade'].astype(int).astype(str) + 's'
+            
+            fig = px.bar(df_decade, x='decade_label', y='movie_count',
+                        title='Movies by Decade',
+                        labels={'decade_label': 'Decade', 'movie_count': 'Number of Movies'},
+                        color='avg_rating', color_continuous_scale='Viridis',
+                        text='movie_count')
+            fig.update_traces(texttemplate='%{text}', textposition='outside')
+            fig.update_layout(xaxis_tickangle=-45, showlegend=True)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No decade data available")
+    except Exception as e:
+        st.warning(f"Could not load decade analytics: {e}")
+
+
+def show_user_analytics():
+    """Show user engagement analytics"""
+    st.subheader("👥 User Engagement Analytics")
+    
+    # User retention
+    st.markdown("### 📊 User Engagement Levels")
+    try:
+        retention_query = """
+            SELECT 
+                COUNT(DISTINCT user_id) as total_users,
+                COUNT(DISTINCT CASE WHEN total_swipes >= 5 THEN user_id END) as users_5plus,
+                COUNT(DISTINCT CASE WHEN total_swipes >= 10 THEN user_id END) as users_10plus,
+                COUNT(DISTINCT CASE WHEN total_swipes >= 20 THEN user_id END) as users_20plus,
+                COUNT(DISTINCT CASE WHEN total_swipes >= 50 THEN user_id END) as power_users
+            FROM dim_users
+        """
+        retention_data = postgres_db.execute_query(retention_query)
+        
+        if retention_data and retention_data[0]['total_users'] > 0:
+            ret = retention_data[0]
+            total = ret['total_users']
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Users", f"{total}")
+            with col2:
+                st.metric("5+ Swipes", f"{ret['users_5plus']}", 
+                         delta=f"{ret['users_5plus']/total*100:.1f}%")
+            with col3:
+                st.metric("10+ Swipes", f"{ret['users_10plus']}",
+                         delta=f"{ret['users_10plus']/total*100:.1f}%")
+            with col4:
+                st.metric("20+ Swipes", f"{ret['users_20plus']}",
+                         delta=f"{ret['users_20plus']/total*100:.1f}%")
+            with col5:
+                st.metric("Power Users", f"{ret['power_users']}",
+                         delta=f"{ret['power_users']/total*100:.1f}%")
+        else:
+            st.info("No user data available yet")
+    except Exception as e:
+        st.warning(f"Could not load user retention: {e}")
+    
+    st.divider()
+    
+    # Genre preferences
+    st.markdown("### 🎭 User Genre Preferences")
+    try:
+        pref_query = """
+            SELECT 
+                UNNEST(preferred_genres) as genre,
+                COUNT(*) as user_count
+            FROM user_preferences
+            GROUP BY UNNEST(preferred_genres)
+            ORDER BY user_count DESC
+            LIMIT 15
+        """
+        pref_data = postgres_db.execute_query(pref_query)
+        
+        if pref_data:
+            df_pref = pd.DataFrame(pref_data)
+            fig = px.pie(df_pref, values='user_count', names='genre',
+                        title='User Genre Preferences Distribution')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No user preference data available yet")
+    except Exception as e:
+        st.warning(f"Could not load genre preferences: {e}")
+    
+    st.divider()
+    
+    # Most active users
+    st.markdown("### 🏆 Most Active Users")
+    try:
+        active_users_query = """
+            SELECT username, total_swipes, total_right_swipes, created_at
+            FROM dim_users
+            WHERE total_swipes > 0
+            ORDER BY total_swipes DESC
+            LIMIT 10
+        """
+        active_users = postgres_db.execute_query(active_users_query)
+        
+        if active_users:
+            df_active = pd.DataFrame(active_users)
+            df_active['like_rate'] = (df_active['total_right_swipes'] / df_active['total_swipes'] * 100).round(1)
+            st.dataframe(df_active[['username', 'total_swipes', 'total_right_swipes', 'like_rate']],
+                        use_container_width=True, hide_index=True,
+                        column_config={
+                            "username": "Username",
+                            "total_swipes": "Total Swipes",
+                            "total_right_swipes": "Likes",
+                            "like_rate": st.column_config.NumberColumn("Like Rate %", format="%.1f")
+                        })
+        else:
+            st.info("No active users yet")
+    except Exception as e:
+        st.warning(f"Could not load active users: {e}")
+
+
+def show_recommendation_analytics():
+    """Show recommendation performance analytics"""
+    st.subheader("🤖 Recommendation Analytics")
+    
+    # Recommendation performance
+    st.markdown("### 📈 Recommendation Performance")
+    try:
+        rec_query = """
+            SELECT 
+                algorithm_used,
+                COUNT(*) as total_recs,
+                SUM(CASE WHEN was_shown THEN 1 ELSE 0 END) as shown,
+                SUM(CASE WHEN was_swiped_right THEN 1 ELSE 0 END) as liked,
+                ROUND(AVG(score)::numeric, 3) as avg_confidence
+            FROM fact_recommendations
+            GROUP BY algorithm_used
+            ORDER BY liked DESC
+        """
+        rec_data = postgres_db.execute_query(rec_query)
+        
+        if rec_data and len(rec_data) > 0:
+            df_rec = pd.DataFrame(rec_data)
+            df_rec['hit_rate'] = (df_rec['liked'] / df_rec['shown'].replace(0, 1) * 100).round(1)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.dataframe(df_rec, use_container_width=True, hide_index=True)
+            
+            with col2:
+                if len(df_rec) > 0:
+                    fig = px.bar(df_rec, x='algorithm_used', y='hit_rate',
+                                title='Hit Rate by Algorithm',
+                                labels={'algorithm_used': 'Algorithm', 'hit_rate': 'Hit Rate (%)'},
+                                color='hit_rate', color_continuous_scale='YlOrRd')
+                    fig.update_layout(showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No recommendation data available yet. Recommendations will appear here once users receive suggestions.")
+    except Exception as e:
+        st.warning(f"Could not load recommendation analytics: {e}")
+    
+    st.divider()
+    
+    # Most recommended movies
+    st.markdown("### 🎯 Most Recommended Movies")
+    try:
+        top_rec_query = """
+            SELECT 
+                m.title,
+                COUNT(r.rec_id) as times_recommended,
+                SUM(CASE WHEN r.was_swiped_right THEN 1 ELSE 0 END) as times_liked,
+                ROUND(AVG(r.score)::numeric, 3) as avg_score
+            FROM fact_recommendations r
+            JOIN dim_movies m ON r.movie_id = m.movie_id
+            GROUP BY m.movie_id, m.title
+            ORDER BY times_recommended DESC
+            LIMIT 10
+        """
+        top_rec = postgres_db.execute_query(top_rec_query)
+        
+        if top_rec:
+            df_top_rec = pd.DataFrame(top_rec)
+            df_top_rec['success_rate'] = (df_top_rec['times_liked'] / df_top_rec['times_recommended'] * 100).round(1)
+            st.dataframe(df_top_rec, use_container_width=True, hide_index=True)
+        else:
+            st.info("No recommendation history yet")
+    except Exception as e:
+        st.warning(f"Could not load most recommended movies: {e}")
 
 
 def main():
