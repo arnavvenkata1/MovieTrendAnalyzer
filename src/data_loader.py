@@ -5,15 +5,16 @@ Loads Kaggle CSV data and populates databases
 
 import pandas as pd
 import numpy as np
-import json
 import sys
 from pathlib import Path
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config.settings import DATA_RAW_PATH, TMDB_IMAGE_BASE_URL
+from config.settings import DATA_RAW_PATH
 from src.utils.db_postgres import db as postgres_db
 from src.utils.db_mongo import mongo_db
+from changing_data.data_cleaner import DataCleaner
+from changing_data.data_transformer import DataTransformer
 
 
 class DataLoader:
@@ -22,6 +23,8 @@ class DataLoader:
     def __init__(self):
         self.movies_df = None
         self.credits_df = None
+        self.cleaner = DataCleaner()
+        self.transformer = DataTransformer()
         
     def load_csv_files(self):
         """Load all CSV files from data/raw"""
@@ -44,65 +47,45 @@ class DataLoader:
         
         return True
     
-    def parse_json_column(self, json_str, key='name'):
-        """Parse JSON string column to list of values"""
-        if pd.isna(json_str):
-            return []
-        try:
-            items = json.loads(json_str.replace("'", '"'))
-            return [item[key] for item in items if key in item]
-        except:
-            return []
-    
-    def transform_movies(self):
-        """Transform raw movie data"""
-        print("\n[2] Transforming movie data...")
+    def clean_movies(self):
+        """Clean raw movie data"""
+        print("\n[2] Cleaning movie data...")
         
         df = self.movies_df.copy()
         
-        # Parse genres
-        df['genres_list'] = df['genres'].apply(lambda x: self.parse_json_column(x, 'name'))
+        # Handle missing values
+        df = self.cleaner.handle_missing_values(df, strategy='fill')
         
-        # Parse keywords
-        df['keywords_list'] = df['keywords'].apply(lambda x: self.parse_json_column(x, 'name'))
+        # Remove duplicates
+        df = self.cleaner.remove_duplicates(df, subset=['id'])
         
-        # Extract release year
-        df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
-        df['release_year'] = df['release_date'].dt.year
-        
-        # Create poster URL
-        # Note: TMDB poster_path format is like "/poster.jpg"
-        # Full URL would need API access, so we'll store the path
-        df['poster_url'] = df.apply(
-            lambda row: f"{TMDB_IMAGE_BASE_URL}{row.get('poster_path', '')}" 
-            if pd.notna(row.get('poster_path')) else None, 
-            axis=1
-        )
-        
-        # Clean up
-        df['overview'] = df['overview'].fillna('')
-        df['vote_average'] = pd.to_numeric(df['vote_average'], errors='coerce').fillna(0)
-        df['vote_count'] = pd.to_numeric(df['vote_count'], errors='coerce').fillna(0)
-        df['popularity'] = pd.to_numeric(df['popularity'], errors='coerce').fillna(0)
-        df['budget'] = pd.to_numeric(df['budget'], errors='coerce').fillna(0)
-        df['revenue'] = pd.to_numeric(df['revenue'], errors='coerce').fillna(0)
-        df['runtime'] = pd.to_numeric(df['runtime'], errors='coerce').fillna(0)
-        
-        print(f"  ✓ Transformed {len(df)} movies")
-        print(f"  ✓ Sample genres: {df['genres_list'].iloc[0]}")
+        # Validate data
+        df = self.cleaner.validate_movie_data(df)
         
         self.movies_df = df
+        print(f"  ✓ Cleaned {len(df)} movies")
         return df
+    
+    def transform_movies(self):
+        """Transform cleaned movie data"""
+        print("\n[3] Transforming movie data...")
+        
+        # Use transformer to apply all transformations
+        df_transformed = self.transformer.transform_movies(self.movies_df)
+        
+        self.movies_df = df_transformed
+        return df_transformed
     
     def load_to_postgres(self):
         """Load transformed data into PostgreSQL"""
-        print("\n[3] Loading data into PostgreSQL...")
+        print("\n[4] Loading data into PostgreSQL...")
         
         if not postgres_db.connect():
             print("  ✗ Could not connect to PostgreSQL")
             return False
         
-        df = self.movies_df
+        # Prepare data for PostgreSQL
+        df = self.transformer.prepare_for_postgres(self.movies_df)
         loaded_count = 0
         
         with postgres_db.get_cursor() as cur:
@@ -123,7 +106,7 @@ class DataLoader:
                     """, (
                         row['id'],
                         row['title'],
-                        row['genres_list'],
+                        row.get('genres', row.get('genres_list', [])),
                         row['overview'],
                         row['release_year'] if pd.notna(row['release_year']) else None,
                         row['release_date'] if pd.notna(row['release_date']) else None,
@@ -132,14 +115,14 @@ class DataLoader:
                         int(row['vote_count']),
                         int(row['budget']),
                         int(row['revenue']),
-                        int(row['runtime']) if row['runtime'] > 0 else None,
+                        int(row['runtime']) if pd.notna(row['runtime']) and row['runtime'] > 0 else None,
                         row['original_language'],
-                        row['poster_url'],
-                        row['keywords_list']
+                        row.get('poster_url'),
+                        row.get('keywords', row.get('keywords_list', []))
                     ))
                     loaded_count += 1
                 except Exception as e:
-                    print(f"\n  ⚠ Error inserting {row['title']}: {e}")
+                    print(f"\n  ⚠ Error inserting {row.get('title', 'Unknown')}: {e}")
                     continue
             
             postgres_db.conn.commit()
@@ -149,24 +132,17 @@ class DataLoader:
     
     def load_to_mongo(self):
         """Load raw data into MongoDB (data lake)"""
-        print("\n[4] Loading raw data into MongoDB...")
+        print("\n[5] Loading raw data into MongoDB...")
         
         if not mongo_db.connect():
             print("  ✗ Could not connect to MongoDB")
             return False
         
-        # Convert dataframe to dict, handling datetime/NaT values for MongoDB compatibility
-        df_copy = self.movies_df.copy()
-        
-        # Replace NaT and NaN values with None for datetime columns
-        for col in df_copy.select_dtypes(include=['datetime64']).columns:
-            df_copy[col] = df_copy[col].replace({pd.NaT: None})
-        
-        # Replace NaN values with None for other numeric columns
-        df_copy = df_copy.replace({np.nan: None, pd.NA: None})
+        # Prepare data for MongoDB (handles NaT/NaN)
+        df_mongo = self.transformer.prepare_for_mongo(self.movies_df)
         
         # Convert to dict records
-        records = df_copy.to_dict('records')
+        records = df_mongo.to_dict('records')
         count = mongo_db.store_raw_kaggle_data('tmdb_5000_movies', records)
         
         print(f"  ✓ Stored {count} raw records in MongoDB")
@@ -183,7 +159,10 @@ class DataLoader:
             print("✗ Failed to load CSV files")
             return False
         
-        # Transform
+        # Clean data
+        self.clean_movies()
+        
+        # Transform data
         self.transform_movies()
         
         # Load to PostgreSQL

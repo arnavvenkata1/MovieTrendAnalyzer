@@ -7,11 +7,15 @@ import streamlit as st
 import pandas as pd
 import sys
 from pathlib import Path
+import uuid
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.settings import APP_CONFIG, GENRE_OPTIONS, MOOD_OPTIONS, AGE_GROUPS, DECADE_OPTIONS
+from src.utils.db_postgres import db as postgres_db
+from src.utils.db_mongo import mongo_db
 
 # Page configuration
 st.set_page_config(
@@ -132,6 +136,12 @@ st.markdown("""
 
 def init_session_state():
     """Initialize session state variables"""
+    if 'user_id' not in st.session_state:
+        st.session_state.user_id = None
+    if 'username' not in st.session_state:
+        st.session_state.username = None
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'onboarding_complete' not in st.session_state:
@@ -148,6 +158,8 @@ def init_session_state():
         st.session_state.disliked_movies = []
     if 'movies_to_show' not in st.session_state:
         st.session_state.movies_to_show = []
+    if 'db_connected' not in st.session_state:
+        st.session_state.db_connected = False
 
 
 def show_landing_page():
@@ -242,6 +254,7 @@ def show_onboarding():
             if len(preferred_genres) < 2:
                 st.error("Please select at least 2 favorite genres")
             else:
+                # Save preferences to session state
                 st.session_state.preferences = {
                     'preferred_genres': preferred_genres,
                     'avoided_genres': avoided_genres,
@@ -250,14 +263,170 @@ def show_onboarding():
                     'min_rating': min_rating,
                     'age_group': age_group
                 }
+                
+                # Create user in database
+                if ensure_db_connection():
+                    try:
+                        # Generate username if not set
+                        if not st.session_state.username:
+                            st.session_state.username = f"user_{uuid.uuid4().hex[:8]}"
+                        
+                        # Create user
+                        user = postgres_db.create_user(
+                            username=st.session_state.username,
+                            age_group=age_group
+                        )
+                        
+                        if user:
+                            st.session_state.user_id = user['user_id']
+                            st.session_state.username = user['username']
+                            
+                            # Save preferences to database
+                            postgres_db.update_user_preferences(
+                                user_id=st.session_state.user_id,
+                                preferences={
+                                    'preferred_genres': preferred_genres,
+                                    'avoided_genres': avoided_genres,
+                                    'preferred_decade': preferred_decade,
+                                    'mood_preference': selected_mood,
+                                    'min_rating': min_rating
+                                }
+                            )
+                            
+                            # Create MongoDB session
+                            mongo_db.create_session(
+                                user_id=st.session_state.user_id,
+                                session_id=st.session_state.session_id
+                            )
+                            
+                            st.success("✅ Profile created! Loading movies...")
+                        else:
+                            st.warning("⚠️ Could not create user profile, but continuing anyway...")
+                    except Exception as e:
+                        st.warning(f"⚠️ Database error: {e}. Continuing with local session...")
+                
                 st.session_state.onboarding_complete = True
                 st.rerun()
 
 
-def load_sample_movies():
-    """Load sample movies for demonstration"""
-    # In production, this would query PostgreSQL
-    sample_movies = [
+def ensure_db_connection():
+    """Ensure database connections are established"""
+    if not st.session_state.db_connected:
+        try:
+            postgres_db.connect()
+            mongo_db.connect()
+            st.session_state.db_connected = True
+            return True
+        except Exception as e:
+            st.error(f"Database connection error: {e}")
+            return False
+    return True
+
+
+def load_movies_from_database(user_id=None, limit=20):
+    """Load movies from PostgreSQL database
+    
+    Args:
+        user_id: Optional user ID to exclude already-swiped movies
+        limit: Number of movies to load
+    """
+    if not ensure_db_connection():
+        # Fallback to sample movies if DB connection fails
+        return load_sample_movies_fallback()
+    
+    try:
+        # Get already swiped movies if user exists
+        exclude_ids = []
+        if user_id:
+            exclude_ids = postgres_db.get_swiped_movie_ids(user_id)
+        
+        # Get user preferences for filtering
+        preferences = st.session_state.preferences if st.session_state.preferences else {}
+        preferred_genres = preferences.get('preferred_genres', [])
+        min_rating = preferences.get('min_rating', 6.0)
+        
+        # Load movies based on preferences
+        if preferred_genres:
+            movies = postgres_db.get_movies_by_genre(
+                genres=preferred_genres,
+                limit=limit * 2,  # Get more to filter by rating
+                exclude_ids=exclude_ids
+            )
+        else:
+            movies = postgres_db.get_random_movies(
+                limit=limit * 2,
+                exclude_ids=exclude_ids,
+                min_rating=min_rating
+            )
+        
+        # Filter by minimum rating and convert to dict format
+        result_movies = []
+        for movie in movies[:limit]:
+            if movie.get('vote_average', 0) >= min_rating:
+                # Convert genres from list/array to list
+                genres = movie.get('genres', [])
+                if isinstance(genres, str):
+                    import ast
+                    try:
+                        genres = ast.literal_eval(genres)
+                    except:
+                        genres = []
+                
+                result_movies.append({
+                    'movie_id': movie['movie_id'],
+                    'title': movie['title'],
+                    'release_year': movie.get('release_year'),
+                    'genres': genres if isinstance(genres, list) else [],
+                    'vote_average': float(movie.get('vote_average', 0)),
+                    'overview': movie.get('overview', ''),
+                    'poster_url': movie.get('poster_url', '')
+                })
+        
+        if result_movies:
+            return result_movies
+        else:
+            # If no movies match preferences, get any random movies
+            return load_sample_movies_fallback()
+            
+    except Exception as e:
+        st.warning(f"Error loading movies from database: {e}. Using sample movies.")
+        return load_sample_movies_fallback()
+
+
+def record_swipe(movie_id, direction):
+    """Record a swipe to the database"""
+    if not st.session_state.user_id:
+        return  # Can't record if no user
+    
+    if not ensure_db_connection():
+        return  # Can't record if DB not connected
+    
+    try:
+        # Record swipe to PostgreSQL
+        postgres_db.record_swipe(
+            user_id=st.session_state.user_id,
+            movie_id=movie_id,
+            direction=direction,
+            session_id=st.session_state.session_id
+        )
+        
+        # Record event to MongoDB session
+        mongo_db.add_session_event(
+            session_id=st.session_state.session_id,
+            event_type='swipe',
+            event_data={
+                'movie_id': movie_id,
+                'direction': direction
+            }
+        )
+    except Exception as e:
+        # Silently fail - don't interrupt user experience
+        pass
+
+
+def load_sample_movies_fallback():
+    """Fallback sample movies if database query fails"""
+    return [
         {
             'movie_id': 1, 'title': 'Inception', 'release_year': 2010,
             'genres': ['Action', 'Science Fiction', 'Thriller'],
@@ -276,20 +445,7 @@ def load_sample_movies():
             'vote_average': 8.4, 'overview': 'A team of explorers travel through a wormhole.',
             'poster_url': 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'
         },
-        {
-            'movie_id': 4, 'title': 'Parasite', 'release_year': 2019,
-            'genres': ['Comedy', 'Thriller', 'Drama'],
-            'vote_average': 8.5, 'overview': 'Greed and class discrimination threaten a symbiotic relationship.',
-            'poster_url': 'https://image.tmdb.org/t/p/w500/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg'
-        },
-        {
-            'movie_id': 5, 'title': 'Spider-Man: Into the Spider-Verse', 'release_year': 2018,
-            'genres': ['Action', 'Adventure', 'Animation'],
-            'vote_average': 8.4, 'overview': 'Teen Miles Morales becomes Spider-Man.',
-            'poster_url': 'https://image.tmdb.org/t/p/w500/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg'
-        },
     ]
-    return sample_movies
 
 
 def show_swipe_interface():
@@ -298,7 +454,10 @@ def show_swipe_interface():
     
     # Load movies if not loaded
     if not st.session_state.movies_to_show:
-        st.session_state.movies_to_show = load_sample_movies()
+        st.session_state.movies_to_show = load_movies_from_database(
+            user_id=st.session_state.user_id,
+            limit=APP_CONFIG['movies_per_session']
+        )
     
     movies = st.session_state.movies_to_show
     idx = st.session_state.current_movie_idx
@@ -365,6 +524,7 @@ def show_swipe_interface():
         
         with btn_col1:
             if st.button("👎 Pass", key="left", use_container_width=True):
+                record_swipe(movie['movie_id'], 'left')
                 st.session_state.disliked_movies.append(movie['movie_id'])
                 st.session_state.swipe_history.append({
                     'movie_id': movie['movie_id'],
@@ -375,6 +535,7 @@ def show_swipe_interface():
         
         with btn_col2:
             if st.button("⏭️ Skip", key="skip", use_container_width=True):
+                record_swipe(movie['movie_id'], 'skip')
                 st.session_state.swipe_history.append({
                     'movie_id': movie['movie_id'],
                     'direction': 'skip'
@@ -384,6 +545,7 @@ def show_swipe_interface():
         
         with btn_col3:
             if st.button("👍 Like", key="right", use_container_width=True, type="primary"):
+                record_swipe(movie['movie_id'], 'right')
                 st.session_state.liked_movies.append(movie['movie_id'])
                 st.session_state.swipe_history.append({
                     'movie_id': movie['movie_id'],
@@ -398,33 +560,98 @@ def show_swipe_interface():
 
 
 def show_recommendations():
-    """Display personalized recommendations"""
+    """Display personalized recommendations using ML models"""
     st.markdown('<h1 class="main-header">✨ Your Recommendations</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Based on your preferences and swipes</p>', unsafe_allow_html=True)
     
-    if len(st.session_state.liked_movies) < 3:
-        st.warning("👆 Swipe on at least 3 movies to get personalized recommendations!")
+    if len(st.session_state.liked_movies) < APP_CONFIG['min_swipes_for_recommendations']:
+        st.warning(f"👆 Swipe on at least {APP_CONFIG['min_swipes_for_recommendations']} movies to get personalized recommendations!")
         return
     
-    # In production, this would call the hybrid recommender
-    st.success("🎯 Here are movies we think you'll love!")
-    
-    # Sample recommendations
-    recommendations = [
-        {'title': 'Dune', 'year': 2021, 'score': 0.95, 'reason': 'Based on your love for Sci-Fi'},
-        {'title': 'The Matrix', 'year': 1999, 'score': 0.92, 'reason': 'Similar to movies you liked'},
-        {'title': 'Blade Runner 2049', 'year': 2017, 'score': 0.89, 'reason': 'Matches your mood preference'},
-    ]
-    
-    for i, rec in enumerate(recommendations, 1):
-        with st.container():
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"### {i}. {rec['title']} ({rec['year']})")
-                st.caption(f"💡 {rec['reason']}")
-            with col2:
-                st.metric("Match", f"{rec['score']*100:.0f}%")
-            st.divider()
+    try:
+        # Load hybrid model
+        from src.models.hybrid import HybridRecommender
+        
+        with st.spinner("🤖 Generating personalized recommendations..."):
+            model = HybridRecommender()
+            model.load('hybrid')
+            
+            # Get user's liked movies
+            liked_movie_ids = st.session_state.liked_movies
+            exclude_ids = list(set(st.session_state.liked_movies + st.session_state.disliked_movies))
+            
+            # Get number of swipes for weight calculation
+            n_swipes = len(st.session_state.swipe_history)
+            
+            # Generate recommendations
+            recommendations = model.recommend_for_user(
+                user_id=st.session_state.user_id,
+                liked_movie_ids=liked_movie_ids,
+                n=10,
+                exclude_ids=exclude_ids,
+                n_swipes=n_swipes
+            )
+            
+            if not recommendations:
+                st.warning("No recommendations available. Try liking more movies!")
+                return
+            
+            # Fetch movie details from database
+            if ensure_db_connection():
+                movie_ids = [r['movie_id'] for r in recommendations]
+                
+                # Get movie details
+                movie_details = {}
+                for movie_id in movie_ids:
+                    movie = postgres_db.get_movie(movie_id=movie_id)
+                    if movie:
+                        movie_details[movie_id] = movie
+                
+                # Display recommendations
+                st.success(f"🎯 Found {len(recommendations)} movies we think you'll love!")
+                st.divider()
+                
+                for i, rec in enumerate(recommendations, 1):
+                    movie_id = rec['movie_id']
+                    movie = movie_details.get(movie_id, {})
+                    
+                    with st.container():
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            title = movie.get('title', f'Movie {movie_id}')
+                            year = movie.get('release_year', 'N/A')
+                            genres = movie.get('genres', [])
+                            overview = movie.get('overview', '')
+                            
+                            st.markdown(f"### {i}. {title} ({year})")
+                            if genres:
+                                genre_tags = ' '.join([f'`{g}`' for g in genres[:3]])
+                                st.markdown(genre_tags)
+                            if overview:
+                                st.caption(overview[:150] + '...' if len(overview) > 150 else overview)
+                            st.caption(f"💡 {rec.get('explanation', 'Recommended for you')}")
+                        with col2:
+                            score = rec.get('score', 0)
+                            st.metric("Match", f"{score*100:.0f}%")
+                        st.divider()
+                
+                # Save recommendations to database
+                try:
+                    postgres_db.save_recommendations(
+                        user_id=st.session_state.user_id,
+                        recommendations=recommendations
+                    )
+                except Exception as e:
+                    pass  # Silently fail
+            else:
+                st.warning("⚠️ Could not load movie details from database")
+                
+    except FileNotFoundError:
+        st.warning("⚠️ ML models not found. Please run: `python3 scripts/train_models.py`")
+    except Exception as e:
+        st.error(f"Error generating recommendations: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 def main():
