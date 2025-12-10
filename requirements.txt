@@ -32,3 +32,8 @@ tqdm==4.66.1
 uuid==1.30
 kagglehub==0.2.3
 
+# External Data Import
+feedparser==6.0.10
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
+

@@ -160,6 +160,11 @@ def init_session_state():
         st.session_state.movies_to_show = []
     if 'db_connected' not in st.session_state:
         st.session_state.db_connected = False
+    # Letterboxd import state
+    if 'import_method' not in st.session_state:
+        st.session_state.import_method = None  # 'manual' or 'letterboxd'
+    if 'letterboxd_data' not in st.session_state:
+        st.session_state.letterboxd_data = None
 
 
 def show_landing_page():
@@ -173,24 +178,105 @@ def show_landing_page():
         st.markdown("""
         ### How it works:
         
-        1. 📝 **Tell us your preferences** - Quick onboarding to understand your taste
+        1. 📝 **Tell us your preferences** - Quick onboarding OR import from Letterboxd
         2. 🎬 **Swipe through movies** - Right for like, Left for pass
         3. ✨ **Get personalized recommendations** - Our AI learns what you love
         
         ---
         """)
         
-        username = st.text_input("Enter a username to get started:", placeholder="movie_lover_123")
+        # Choose signup method
+        signup_method = st.radio(
+            "Choose how to get started:",
+            ["✍️ New User (Manual Onboarding)", "📥 Import from Letterboxd"],
+            horizontal=True
+        )
         
-        if st.button("🚀 Start Discovering", type="primary", use_container_width=True):
-            if username:
-                st.session_state.user = {
-                    'username': username,
-                    'user_id': hash(username) % 10000  # Simple ID for demo
-                }
-                st.rerun()
-            else:
-                st.error("Please enter a username")
+        if signup_method == "✍️ New User (Manual Onboarding)":
+            username = st.text_input("Enter a username to get started:", placeholder="movie_lover_123")
+            
+            if st.button("🚀 Start Discovering", type="primary", use_container_width=True):
+                if username:
+                    st.session_state.user = {
+                        'username': username,
+                        'user_id': hash(username) % 10000
+                    }
+                    st.session_state.import_method = 'manual'
+                    st.rerun()
+                else:
+                    st.error("Please enter a username")
+        
+        else:  # Letterboxd Import
+            st.markdown("""
+            #### 📥 Import from Letterboxd
+            Enter your **public** Letterboxd username to import your ratings.
+            We'll use your movie history to personalize recommendations instantly!
+            """)
+            
+            letterboxd_username = st.text_input(
+                "Letterboxd Username:", 
+                placeholder="your_letterboxd_username",
+                help="Your Letterboxd profile must be public"
+            )
+            
+            if st.button("🔍 Import My Ratings", type="primary", use_container_width=True):
+                if letterboxd_username:
+                    with st.spinner("Connecting to Letterboxd..."):
+                        try:
+                            from src.letterboxd_import import LetterboxdImporter
+                            
+                            importer = LetterboxdImporter()
+                            is_valid, msg = importer.validate_username(letterboxd_username)
+                            
+                            if is_valid:
+                                st.success(f"✅ Found profile! {msg}")
+                                
+                                with st.spinner("Importing your movie ratings..."):
+                                    movies = importer.get_user_ratings(letterboxd_username, limit=50)
+                                    
+                                    if movies:
+                                        # Separate liked and disliked
+                                        liked = [m for m in movies if m.get('liked') and m.get('matched')]
+                                        disliked = [m for m in movies if not m.get('liked') and m.get('matched')]
+                                        
+                                        st.success(f"🎬 Imported {len(liked)} liked and {len(disliked)} disliked movies!")
+                                        
+                                        # Store in session state
+                                        st.session_state.user = {
+                                            'username': letterboxd_username,
+                                            'user_id': hash(letterboxd_username) % 10000
+                                        }
+                                        st.session_state.import_method = 'letterboxd'
+                                        st.session_state.letterboxd_data = movies
+                                        st.session_state.liked_movies = [m['movie_id'] for m in liked if m.get('movie_id')]
+                                        st.session_state.disliked_movies = [m['movie_id'] for m in disliked if m.get('movie_id')]
+                                        
+                                        # Skip onboarding if we have enough data
+                                        if len(liked) >= 3:
+                                            st.session_state.onboarding_complete = True
+                                            st.session_state.preferences = {
+                                                'preferred_genres': [],  # Will be inferred
+                                                'avoided_genres': [],
+                                                'preferred_decade': 'Any',
+                                                'mood_preference': 'Excited',
+                                                'min_rating': 6.0,
+                                                'age_group': '18-24'
+                                            }
+                                            st.balloons()
+                                        
+                                        st.rerun()
+                                    else:
+                                        st.warning("No rated movies found. Try manual onboarding instead.")
+                            else:
+                                st.error(f"❌ {msg}")
+                                st.info("Make sure your Letterboxd profile is public and the username is correct.")
+                        
+                        except ImportError:
+                            st.error("Letterboxd import not available. Please install: `pip install feedparser fuzzywuzzy`")
+                        except Exception as e:
+                            st.error(f"Error importing: {str(e)}")
+                else:
+                    st.error("Please enter your Letterboxd username")
 
 
 def show_onboarding():
