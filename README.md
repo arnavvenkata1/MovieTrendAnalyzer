@@ -19,6 +19,24 @@ A movie recommendation system with a Tinder-style swipe interface. Swipe right t
 - **APIs**: TMDB API (trailers, metadata)
 - **Data**: Kaggle TMDB 5000 Movies Dataset
 
+## Datasets
+
+The following datasets are used in this project:
+
+- **TMDB 5000 Movie Dataset** (Primary)
+  - [Kaggle Dataset Link](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata)
+  - Contains: `tmdb_5000_movies.csv` and `tmdb_5000_credits.csv`
+  - ~5,000 movies with metadata (titles, genres, overviews, ratings, cast, crew)
+
+- **TMDB API** (Live Data)
+  - [API Documentation](https://www.themoviedb.org/documentation/api)
+  - Used for: Real-time trailer links and up-to-date movie metadata
+
+- **Letterboxd RSS Feeds** (User Data Import)
+  - Fetched live from public user profiles
+  - Format: `https://letterboxd.com/{username}/rss/`
+  - Used for importing existing user ratings
+
 ## Quick Start
 
 ### 1. Install Dependencies
